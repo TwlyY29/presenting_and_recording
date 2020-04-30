@@ -1,0 +1,285 @@
+#!/usr/bin/env python3
+
+import tkinter as tk
+from tkinter import messagebox as mb
+import tkinter.font as tkFont
+from tkinterhtml import HtmlFrame
+import markdown
+from PIL import Image,ImageTk,ImageDraw
+from pdf2image import convert_from_path
+from pathlib import Path
+import os
+import re
+import subprocess
+from datetime import datetime
+
+class PresenterView(tk.Frame):
+
+    def __init__(self, parent, pdffile, startslide, *args, **kwargs):
+
+        tk.Frame.__init__(self, parent, *args, **kwargs)
+
+        self.root = parent
+        self.root.wm_title("Presenter")   
+        # ~ self.root.attributes('-fullscreen', True)
+        # enable shortcuts
+        self.root.bind('<KeyPress>', self.onKeyPress)
+
+        self.rec_is_recording = False
+        self.rec_basepath = Path(pdffile).absolute().parent
+        self.rec_basename = pdffile.replace('.pdf','')
+        self.rec_timing_file = pdffile.replace('.pdf','-timing.chap')
+        self.rec_timing_starttime = None
+        
+        self.md = markdown.Markdown()
+        self.notes_font_size = 2
+        
+        self.timer_format = "%H:%M:%S"
+        
+        max_w = round(self.root.winfo_screenwidth() * .95)
+        max_h = round(self.root.winfo_screenheight() * .91)
+        
+        self.frame_left = tk.Frame(self.root, width=round(max_w * .75))
+        self.frame_left.pack(fill=tk.BOTH, side=tk.LEFT, expand=1)
+        
+        self.frame_right = tk.Frame(self.root, width=round(max_w * .25))
+        self.frame_right.pack(fill=tk.BOTH, side=tk.LEFT, expand=0)
+        self.frame2 = tk.Frame(self.frame_right)
+        self.frame2.pack(fill=tk.X, expand=1)
+        
+        self.frame3 = tk.Frame(self.frame_right)
+        self.frame3.pack(fill=tk.X, expand=1)
+
+        self.cv1 = tk.Canvas(self.frame_left, bd=1)#, relief=tk.RAISED)
+        self.cv1.pack(fill=tk.BOTH, expand=1)
+
+        self.cv2 = tk.Canvas(self.frame2, bd=1)#, relief=tk.RAISED)
+        self.cv2.pack(fill=tk.Y, side=tk.LEFT, expand=1)
+        self.frame4 = tk.Frame(self.frame2)
+        self.frame4.pack(fill=tk.Y, side=tk.LEFT, expand=1)
+        
+        self.clock_font = tkFont.Font(family="Lucida Grande", size=20)
+        
+        self.clock_label = tk.Label(self.frame4, text=datetime.strftime(datetime.now(),self.timer_format), font=self.clock_font)
+        self.clock_label.pack()
+        
+        self.recording_timer_label = tk.Label(self.frame4, text="00:00:00", font=self.clock_font)
+        self.recording_timer_label.pack()
+        
+        self.btn_text = tk.StringVar()
+        self.btn = tk.Button(self.frame4, textvariable = self.btn_text, command = self.toggle_recording)
+        self.btn_text.set("Start Recording")
+        self.btn.pack()
+        
+        self.notes_txt = HtmlFrame(self.frame3)
+        self.notes_txt.pack(side=tk.LEFT, fill=tk.BOTH, expand=0)
+        self.frame5 = tk.Frame(self.frame3, width=30)
+        self.frame5.pack(fill=tk.BOTH, side=tk.LEFT, expand=1)
+        self.btn_font_plus  = tk.Button(self.frame5, text = "+", command = self.notes_fontsize_increase)
+        self.btn_font_minus = tk.Button(self.frame5, text = "-", command = self.notes_fontsize_decrease)
+        self.btn_font_plus.pack(fill=tk.BOTH, expand=1)
+        self.btn_font_minus.pack(fill=tk.BOTH, expand=1)
+        
+        self.root.update()
+        geom = "{}x{}+{}+{}".format(max_w, 
+                                    max_h,
+                                    30, 
+                                    30)
+        self.root.geometry(geom)
+        self.root.update()
+        self._after_id = None
+        self.root.after(500, self.load_and_init, pdffile, startslide, max_h)
+
+    def schedule_redraw(self, event):
+      if self._after_id:
+          self.after_cancel(self._after_id)
+      if event.width != 30000 and event.height != 30000:
+        self._after_id = self.after(2000, self.resize)
+    
+    def load_and_init(self, pdffile, startslide, max_h):
+      # Here the PDF is converted to list of images
+      self.pages = convert_from_path(pdffile,size=(None, min(1000,max_h)),dpi=300)
+      self.counter = int(startslide)-1
+      self.max_count = len(self.pages)-1
+      self.notes = self.load_notes(pdffile, len(self.pages))
+      self.update_notes()
+      self.update_clock()
+      self.resize(initial=True)
+      self.root.bind('<Configure>', self.schedule_redraw)
+    
+    def resize(self, initial=False):
+      self.list_images = []
+      
+      pic_width = self.frame_left.winfo_width()
+      pic_height = self.frame_left.winfo_height()
+      # Storing the converted images into list
+      max_w = 0
+      for i in range(len(self.pages)):
+        img = self.pages[i].copy()
+        img.thumbnail((pic_width,pic_height), Image.ANTIALIAS)
+        max_w = max(max_w, img.size[0])
+        self.list_images.append(ImageTk.PhotoImage(img))
+      self.update_main_img()
+      
+      if initial:
+        self.list_preview_images = []
+        prev_pic_width = self.cv2.winfo_width()
+        prev_pic_height = self.cv2.winfo_height()
+        # Create Preview images
+        for i in range(len(self.pages)):
+          img = self.pages[i].copy()
+          img.thumbnail((prev_pic_width,prev_pic_height), Image.ANTIALIAS)
+          self.list_preview_images.append(ImageTk.PhotoImage(img))
+        # append a black screen at the end
+        self.list_preview_images.append(self.make_dummy(self.list_preview_images[0].width(),self.list_preview_images[0].height()))
+      if len(self.list_images) >= 2:
+        self.update_preview_img()
+      
+      # ~ if not initial:
+        # ~ self.frame_left.config(width=max_w)
+        # ~ self.frame_right.config(width=self.root.winfo_width()-max_w)
+        # ~ self.notes_txt.config(width=self.root.winfo_width()-max_w-30)
+
+    def toggle_recording(self):
+      if self.rec_is_recording:
+        self.btn_text.set("Start Recording")
+        self.rec_is_recording = False
+        self.rec_recorder.terminate()
+        self.rec_timing_starttime = None
+        while self.rec_recorder.poll() is None:
+          pass
+        if mb.askyesno("Recording finished", "Do you want to produce the final file right away?"):
+          rec_producer = subprocess.Popen(["mate-terminal",
+                                           "--execute","producerecording",
+                                           self.rec_basename+'-audio.flac',
+                                           self.rec_basename+'-screen.mp4',
+                                           self.rec_basename+'-timing.chap',
+                                           self.rec_basename+'.mp4'],
+                                           cwd=self.rec_basepath)
+          rec_producer.communicate()
+      else:
+        self.btn_text.set("Stop Recording")
+        self.rec_is_recording = True
+        
+        geom = "{}x{}+{}+{}".format(min(self.cv1.winfo_reqwidth(), self.cv1.winfo_width())-6,
+                                    min(self.cv1.winfo_reqheight(), self.cv1.winfo_height())-6,
+                                    self.cv1.winfo_rootx()+3,
+                                    self.cv1.winfo_rooty()+3)
+        self.rec_timing_starttime = datetime.now()
+        with open(self.rec_timing_file, 'w') as tf:
+          print("{} S".format(self.rec_timing_starttime), file=tf)
+        self.rec_recorder = subprocess.Popen(["record",self.rec_basename,geom])
+    
+    def log_timing(self, marker=None):
+      if self.rec_is_recording:
+        diff = datetime.now() - self.rec_timing_starttime
+        diff = str(diff).split('.')[0]
+        with open(self.rec_timing_file, 'a') as tf:
+          print("{} {}".format(datetime.strftime(datetime.strptime(diff, "%H:%M:%S"), "%H:%M:%S"), self.counter+1 if marker is None else marker), file=tf)
+      
+    
+    def next_image(self):
+      if self.counter < self.max_count:
+        self.counter += 1
+        self.update_main_img()
+        self.update_preview_img()
+        self.update_notes()
+        self.log_timing()
+
+    def previous_image(self):
+      if self.counter > 0:
+        self.counter -= 1
+        self.update_main_img()
+        self.update_preview_img()
+        self.update_notes()
+        self.log_timing()
+
+    def notes_fontsize_increase(self):
+      self.notes_font_size += 2
+      self.update_notes()
+      
+    def notes_fontsize_decrease(self):
+      self.notes_font_size -= 2
+      self.update_notes()
+      
+    def update_notes(self):
+      self.notes_txt.set_content('<html></html>')
+      i = str(self.counter+1)
+      if i in self.notes:
+        self.notes_txt.set_content('<html><font size="+{}">{}</font></html>'.format(self.notes_font_size,self.md.convert((''.join(self.notes[i])).strip())))
+
+    def onKeyPress(self, event):
+      kc = event.keycode
+      ch = event.char
+      if kc == 114 or kc == 116 or ch == 'n':
+        self.next_image()
+      elif kc == 111 or kc == 113 or ch == 'p':
+        self.previous_image()
+      elif ch == '+':
+        self.notes_fontsize_increase()
+      elif ch == '-':
+        self.notes_fontsize_decrease()
+      elif ch == 'r':
+        self.toggle_recording()
+      elif ch == 'x':
+        self.log_timing('X')
+
+    def update_main_img(self):
+      self.im = self.list_images[self.counter]
+      if self.counter > 0:
+        self.cv1.delete("all")
+      self.cv1.create_image(0, 0, anchor = 'nw', image = self.im)
+      self.cv1.config(width = self.im.width(), height=self.im.height())
+
+    def update_preview_img(self):
+      self.imprev = self.list_preview_images[self.counter + 1]
+      if self.counter > 0:
+        self.cv2.delete("all")
+      self.cv2.create_image(0, 0, anchor = 'nw', image = self.imprev)
+
+    def update_clock(self):
+      now = datetime.now()
+      self.clock_label.configure(text=datetime.strftime(now,self.timer_format))
+      if self.rec_is_recording:
+        diff = now - self.rec_timing_starttime
+        diff = str(diff).split('.')[0]
+        self.recording_timer_label.configure(text = datetime.strftime(datetime.strptime(diff, "%H:%M:%S"), self.timer_format))
+      self.root.after(1000, self.update_clock)
+
+    def make_dummy(self, width, height):
+      img = Image.new('RGB', (width,height), (0,0,0))
+      draw = ImageDraw.Draw(img)
+      draw.line((0,height, width, 0), fill=128, width=3)
+      return ImageTk.PhotoImage(img)
+
+    def load_notes(self, filename, n_slides):
+      notes = {}
+      p = Path(filename.replace('.pdf', '.notes'))
+      if p.exists():
+        cur = []
+        cur_s = None
+        with open(p,'r') as _f:
+          for line in _f:
+            m = re.match( r'^#\s*(\d+)', line, re.M)
+            if m:
+              if cur_s in notes:
+                raise Exception('slide has more than one notes section')
+              if cur_s is not None:
+                notes[cur_s] = cur
+              cur = []
+              cur_s = (m.group(0)).replace('#','')
+            else:
+              cur.append(line)
+          notes[cur_s] = cur
+      return notes
+      
+
+def main(pdffile, startslide=1):
+    root = tk.Tk() 
+    MyApp = PresenterView(root, pdffile, startslide)
+    tk.mainloop()
+
+
+if __name__=='__main__':
+  import plac
+  plac.call(main)

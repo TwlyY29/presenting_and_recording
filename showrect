@@ -1,0 +1,42 @@
+#!/usr/bin/env python3
+
+import sys
+from tkinter import *
+
+
+fix_with_off=1
+fix_height_off=28
+geom = '1024x768+100+100'
+
+
+root = Tk()
+root.wait_visibility(root)
+root.attributes("-alpha", 0.5)
+
+parts = (sys.argv[1] if len(sys.argv) == 2 else geom).split('+')
+res = (parts[0]).split('x')
+# calculate offset induced by window decoration
+geom = "{}x{}+{}+{}".format(int(res[0])+fix_with_off,
+                              int(res[1])+fix_height_off,
+                              int(parts[1])-fix_with_off,
+                              int(parts[2])-fix_height_off)
+  
+root.geometry(geom)
+root.update()
+
+def callback():
+    pos=root.winfo_geometry()
+    parts=pos.split('+')
+    res = (parts[0]).split('x')
+    
+    print("{}x{}+{}+{}".format(int(res[0]),
+                               int(res[1]),
+                               root.winfo_x(),
+                               root.winfo_y()))
+    # ~ print(pos)
+    sys.exit(3)
+
+b = Button(root, text="GET POSITION", height=root.winfo_height(), width=root.winfo_width(), command=callback)
+b.pack()
+
+root.mainloop()

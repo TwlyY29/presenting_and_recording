@@ -1,0 +1,167 @@
+#!/bin/bash
+# 
+# Record screen and microphone audio
+# Steven Gordon
+#
+# Example usage:
+#    screencast lecture intro-to-datacomms
+# The audio and screen will be recorded. Press 'z' to stop.
+# Two files will be created: intro-to-datacomms-audio.flac, intro-to-datacomms-screen.mp4
+
+# Check for ffmpeg or avconv
+# Once one of them is found, we will use ${vidconv} for the app
+# Since ffmpeg and avconv may have different options, we set
+# them in ${vidconvopt}
+which ffmpeg > /dev/null
+result=$?
+if [ ${result} -eq 0 ];
+then
+	vidconv="ffmpeg"
+	vidconvopt="-show_region 1";
+else
+	which avconv > /dev/null
+	result=$?
+	if [ ${result} -eq 0 ];
+	then
+		vidconv="avconv"
+		vidconvopt=""
+	else
+		echo "Error: ffmpeg or avconv must be installed. Exiting."
+		exit 1;
+	fi
+fi
+op="____"
+
+
+# The computer recording: screen sizes differ, e.g. lenovo, samsung
+# See the list below
+computer=$1
+# Basename of file. Separate extensions for audio and screen are added
+# E.g. internet-lecture
+outfile=$2
+
+# Timing information
+timingfile=${outfile}-timing.chap
+rm -f ${timingfile}
+
+# Name and default options for audio output
+audioFile=${outfile}-audio.flac
+audioRate=44100
+audioBits=16
+audioChannels=2
+
+# Name and default options for screen output
+screenFile=${outfile}-screen.mp4
+screenRate=10
+screenOffset='+0,0'
+# Preview area of capturing?
+previewarea=1
+
+finalFile=${outfile}.mp4
+
+# Set the screen size depending on the computer chosen
+# You may add your own names/entries depending on your
+# screen resolution
+if [ ${computer} = "full" ]
+then
+	# full screen recording. includes all monitors
+	screenSize=$(xdpyinfo | grep dimensions | sed -r 's/^[^0-9]*([0-9]+x[0-9]+).*$/\1/')
+	previewarea=0
+elif [ ${computer} = "current" ]
+then
+	# Only current monitor
+	screenSize=$(xrandr --current | grep '*' | uniq | awk '{print $1}')
+	previewarea=0
+elif [ ${computer} = "custom" ]
+then
+	# Home monitor, full screen
+	screenSize=1200x900
+	screenOffset='+100,100'
+elif [ ${computer} = "lecture" ]
+then
+	# SIIT lecture
+	# Lenovo laptop + projector
+	# Record only projector
+	screenSize=1024x768
+	screenOffset='+1366,0'
+	screenRate=10;
+else
+	# Default if none other chosen
+	screenSize=800x600
+	previewarea=1
+fi
+
+# Video codec, H.264, and options for fast recording
+screenCodec=libx264
+screenOptions="-q:v 0 -preset ultrafast -crf 0 -threads 0"
+#screenCodec=flashsv
+#screenOptions="-threads 0"
+
+if [ $previewarea == 1 ]; then
+	update=$(showrect ${screenSize}${screenOffset/,/+})
+	change=$?
+	if [ $change == 3 ]; then
+		screenSize=$(cut -d'+' -f1 <<< $update)
+		screenOffset="+$(cut -d'+' -f2- <<< $update)"
+	fi
+fi
+
+echo "Press s to start recording..."
+while [ ${op} != "s" ]
+do
+	read -s -n1 op
+	echo ""
+done
+
+record "$outfile" "$screenSize$screenOffset"
+recordPID=$?
+
+currenttime=`date +%s`;
+starttime=${currenttime};
+
+function sec_to_time {
+	s=$1
+	if [ $s -ge 3600 ]
+	then
+		h=`expr $s / 3600`;
+		s=`expr $s % 3600`;
+	else
+		h=0;
+	fi
+	if [ $s -ge 60 ]
+	then
+		m=`expr $s / 60`;
+		s=`expr $s % 60`;
+	else
+		m=0;
+	fi
+	printf "%02d:%02d:%02d.000" $h $m $s
+}
+
+echo -e "options:\n\t[z] to finish\n\t[s] to add chapter marker\n"
+# Enter loop reading input from terminal, stop when 'z' key pressed
+while [ ${op} != "z" ]
+do
+	read -s -n1 op 
+	currenttime=`date +%s`;
+	seconds=`expr $currenttime - $starttime`;
+	secs=`sec_to_time ${seconds}`
+
+	if [ ${op} = "s" ] || [ ${op} = "c" ] || [ ${op} = "m" ]
+	then
+		echo ${secs} >> ${timingfile}
+		echo -e "$secs\tadded marker"
+	fi
+done
+
+# Kill the record process, which causes it to stop recording
+kill -INT ${recordPID}
+
+read -s -p "Should I produce the final file now? [y] to start encoding. [Esc] to cancel sync" -n 1 -r
+echo ""
+if [[ $REPLY =~ ^[Yy]$ ]]
+then
+  producerecording ${audioFile} ${screenFile} ${timingfile} ${finalFile} 
+fi
+
+exit

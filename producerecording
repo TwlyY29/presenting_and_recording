@@ -1,0 +1,83 @@
+#!/bin/bash
+
+[ $# == 4 ] || exit 1
+
+audioFile="$1"
+screenFile="$2"
+timingfile="$3"
+finalFile="$4"
+
+texteditor="pluma"
+videoplayer="vlc"
+
+here=$(pwd)
+echo $here
+
+if ! [[ "$audioFile" = /* ]]; then
+  audioFile=$here/$(basename "$audioFile")
+fi
+
+if ! [[ "$screenFile" = /* ]]; then
+  screenFile=$here/$(basename "$screenFile")
+fi
+
+if ! [[ "$timingfile" = /* ]]; then
+  timingfile=$here/$(basename "$timingfile")
+fi
+
+if ! [[ "$finalFile" = /* ]]; then
+  finalFile=$here/$(basename "$finalFile")
+fi
+
+read -s -p "Do you want to check the audio? [y] to open the audio using $videoplayer. [Esc] to use the file as is." -n 1 -r
+echo ""
+if [[ $REPLY =~ ^[Yy]$ ]]
+then
+  echo ""
+  ${videoplayer} ${audioFile} > /dev/null 2>&1
+fi
+echo ""
+
+read -s -p "Apply audio gain? [-+][1-9]dB or [n] to skip" -n 2 -r
+echo ""
+echo $REPLY
+if [[ $REPLY =~ ^[-+]?[1-9]+$ ]]
+then
+  echo "applying $REPLY dB of gain"
+  sox $audioFile tmp.flac gain -n $REPLY
+  audioFile="tmp.flac"
+fi
+
+echo ""
+echo -n "merging audio and video now to '$finalFile'... "
+# produce the output by just copying the video file
+ffmpeg -i ${screenFile} -i ${audioFile} -acodec libvorbis -vcodec copy ${finalFile}
+echo "done"
+if [ -s ${timingfile} ]
+then
+  echo "################################"
+  echo "## found the following chapters:"
+  echo ""
+  cat ${timingfile}
+  echo ""
+  echo "################################" 
+  read -s -p "Do you want to edit chapter markers? [y] to open a text editor. [Esc] to use the file as is." -n 1 -r
+  echo ""
+  if [[ $REPLY =~ ^[Yy]$ ]]
+  then
+    echo ""
+    cp ${finalFile} tmp.mp4
+    MP4Box -chap ${timingfile} tmp.mp4
+    ${videoplayer} tmp.mp4 > /dev/null 2>&1 &
+    playerPID=$!
+    ${texteditor} ${timingfile}
+    kill ${playerPID}  > /dev/null 2>&1
+    rm -f tmp.mp4
+  fi
+  echo "adding chapters now"
+  sed 's/.*S$//g' ${timingfile} > tmp.timing
+  MP4Box -chap tmp.timing ${finalFile}
+  #~ rm -f tmp.flac tmp.timing
+else
+  rm -f ${timingfile}
+fi
