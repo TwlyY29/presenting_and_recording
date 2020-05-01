@@ -119,6 +119,8 @@ class PresenterView(tk.Frame):
         img.thumbnail((pic_width,pic_height), Image.ANTIALIAS)
         max_w = max(max_w, img.size[0])
         self.list_images.append(ImageTk.PhotoImage(img))
+      
+      self.cv1.config(width = self.list_images[0].width(), height=self.list_images[0].height())
       self.update_main_img()
       
       if initial:
@@ -226,10 +228,9 @@ class PresenterView(tk.Frame):
 
     def update_main_img(self):
       self.im = self.list_images[self.counter]
-      if self.counter > 0:
-        self.cv1.delete("all")
+      self.root.update()
+      # ~ self.cv1.delete("all")
       self.cv1.create_image(0, 0, anchor = 'nw', image = self.im)
-      self.cv1.config(width = self.im.width(), height=self.im.height())
 
     def update_preview_img(self):
       self.imprev = self.list_preview_images[self.counter + 1]
