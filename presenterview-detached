@@ -54,7 +54,6 @@ class SlideView:
     if geom is None or geom != self.last_geom:
       if geom is not None:
         self.last_geom = geom
-      
       self.list_images = []
       pic_width = self.frame.winfo_width()
       pic_height = self.frame.winfo_height()
@@ -102,12 +101,16 @@ class PresenterView(tk.Frame):
     # enable shortcuts
     self.root.bind('<KeyPress>', self.onKeyPress)
     self.root.protocol("WM_DELETE_WINDOW", self.close_window)
+    
+    self.pdffile = pdffile
 
     self.rec_is_recording = False
-    self.rec_basepath = Path(pdffile).absolute().parent
+    self.rec_basepath = Path(self.pdffile).absolute().parent
     self.rec_basename = pdffile.replace('.pdf','')
-    self.rec_timing_file = pdffile.replace('.pdf','-timing.chap')
+    self.rec_timing_file = self.pdffile.replace('.pdf','-timing.chap')
+    self.rec_timing_file_vtt = self.pdffile.replace('.pdf','.vtt')
     self.rec_timing_starttime = None
+    self.rec_timing_markers = []
     
     self.md = markdown.Markdown()
     self.notes_font_size = 2
@@ -162,6 +165,12 @@ class PresenterView(tk.Frame):
                                                                                                     not self.slide_window.attributes("-fullscreen")))
     self.btn_fs.pack()
     
+    
+    self.btn_rn_text = tk.StringVar()
+    self.btn_rn = tk.Button(self.frame4, textvariable = self.btn_rn_text, command = self.update_notes)
+    self.btn_rn_text.set("Reload Notes")
+    self.btn_rn.pack()
+    
     self.notes_txt = HtmlFrame(self.frame3)
     self.notes_txt.pack(side=tk.LEFT, fill=tk.BOTH, expand=0)
     self.frame5 = tk.Frame(self.frame3, width=30)
@@ -179,7 +188,7 @@ class PresenterView(tk.Frame):
     self.root.geometry(geom)
     self.root.update()
     self._after_id = None
-    self.root.after(500, self.load_and_init, pdffile, startslide, max_h)
+    self.root.after(500, self.load_and_init, startslide, max_h)
 
   def schedule_redraw(self, event):
     if self._after_id:
@@ -187,14 +196,14 @@ class PresenterView(tk.Frame):
     if event.width != 30000 and event.height != 30000:
       self._after_id = self.after(2000, self.resize)
   
-  def load_and_init(self, pdffile, startslide, max_h):
+  def load_and_init(self, startslide, max_h):
     # Here the PDF is converted to list of images
-    self.pages = convert_from_path(pdffile,size=(None, max_h*1.1),dpi=300)
+    self.pages = convert_from_path(self.pdffile,size=(None, max_h*4.1),dpi=300)
     self.counter = int(startslide)-1
     self.max_count = len(self.pages)
     self.slide_viewer.init(self.pages, self.counter)
-    self.notes = self.load_notes(pdffile, len(self.pages))
-    self.update_notes()
+    self.notes = self.load_notes(self.pdffile, len(self.pages))
+    self.update_notes(False)
     self.update_clock()
     self.resize(initial=True)
     self.root.bind('<Configure>', self.schedule_redraw)
@@ -256,6 +265,7 @@ class PresenterView(tk.Frame):
     if self.rec_is_recording:
       diff = datetime.now() - self.rec_timing_starttime
       diff = str(diff).split('.')[0]
+      self.rec_timing_markers.append(diff)
       with open(self.rec_timing_file, 'a') as tf:
         print("{} {}".format(datetime.strftime(datetime.strptime(diff, "%H:%M:%S"), "%H:%M:%S"), self.counter+1 if marker is None else marker), file=tf)
     
@@ -265,7 +275,7 @@ class PresenterView(tk.Frame):
       self.counter += 1
       self.slide_viewer.update_main_img()
       self.update_preview_img()
-      self.update_notes()
+      self.update_notes(False)
       self.log_timing()
 
   def previous_image(self):
@@ -273,18 +283,20 @@ class PresenterView(tk.Frame):
       self.counter -= 1
       self.slide_viewer.update_main_img()
       self.update_preview_img()
-      self.update_notes()
+      self.update_notes(False)
       self.log_timing()
 
   def notes_fontsize_increase(self):
     self.notes_font_size += 2
-    self.update_notes()
+    self.update_notes(False)
     
   def notes_fontsize_decrease(self):
     self.notes_font_size -= 2
-    self.update_notes()
+    self.update_notes(False)
     
-  def update_notes(self):
+  def update_notes(self, reload=True):
+    if reload:
+      self.notes = self.load_notes(self.pdffile, len(self.pages))
     self.notes_txt.set_content('<html></html>')
     i = str(self.counter+1)
     if i in self.notes:
@@ -336,7 +348,7 @@ class PresenterView(tk.Frame):
             if cur_s is not None:
               notes[cur_s] = cur
             cur = []
-            cur_s = (m.group(0)).replace('#','')
+            cur_s = (m.group(0)).replace('#','').strip()
           else:
             cur.append(line)
         notes[cur_s] = cur
