@@ -1,0 +1,76 @@
+#!/bin/bash
+
+# https://unix.stackexchange.com/questions/39623/trap-err-and-echoing-the-error-line
+die () {
+  c=$(caller)
+  if [[ $c != 1* ]]; then
+    echo >&2 "Error at line $c:"
+    echo >&2 "   $@"
+  else
+    echo >&2 "$@"
+  fi
+  exit 1
+}
+
+
+Help()
+{
+   # Display Help
+   echo "Extract slide notes from a pptx file and print them out in a *.notes file."
+   echo
+   echo "Syntax: $0 [-h|FILE]"
+   echo "options:"
+   echo "h     Print this Help."
+   echo
+   echo "FILE  the PowerPoint file to extract notes from"
+}
+
+trap_with_arg() {
+  func="$1" ; shift
+  for sig ; do
+    trap "$func exiting - caught $sig" "$sig"
+  done
+}
+
+# http://redsymbol.net/articles/bash-exit-traps/
+# wrapper function for signal https://stackoverflow.com/questions/9256644/identifying-received-signal-name-in-bash
+trap_with_arg die ERR HUP INT QUIT TERM SIGHUP SIGINT SIGTERM 
+
+while getopts ":h" opt; do
+  case ${opt} in
+    h )
+      Help
+      exit;;
+  esac
+done
+shift $((OPTIND -1))
+[ $# == 1 ] || { Help ; die "need a pptx file to process" ; }
+
+pptx="$1"
+outfile=${pptx/.pptx/.notes}
+echo "converting '$1' to '$outfile'"
+
+
+declare -A notes
+
+while read -r f; do
+  xml=$( unzip -qc "$pptx" "$f" ) # unzip target
+  num=$(echo "$xml" | xmlstarlet sel -t -m "//a:fld[@type='slidenum']" -v . | tr -d '[:space:]')
+  slidenote="#$num"
+  while read -r line; do
+    slidenote=$( printf "%s\n\n%s" "$slidenote" "$line" )
+  done < <( echo "$xml" | xmlstarlet sel -t -m "//p:txBody//a:p[.//a:r//a:t]" -v . -n )
+  # create assoc array with slidenum as key
+  notes[$num]="$slidenote" 
+done < <( zipinfo -1 "$pptx" | grep "ppt/notesSlides/notesSlide[0-9]*.xml" ) # select notesslides files only
+# sort by slidenum
+mapfile -d '' sorted < <(printf '%02u\0' "${!notes[@]}" | sort -z)
+
+# print out notes in order
+for key in "${sorted[@]}"; do
+    echo "${notes[$((10#$key))]}" # remove leading zero: The $(()) sets up an arithmetic context and the 10# converts the number from base 10 to base 10 causing any leading zeros to be dropped.
+    echo ""
+    echo ""
+done > "$outfile"
+
+echo "conversion done"
