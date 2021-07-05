@@ -41,22 +41,29 @@ class SlideView:
   def schedule_redraw(self, event):
     if self._after_id:
         self.parent.after_cancel(self._after_id)
-    geom = "{}x{}".format(event.width, event.height)
-    self._after_id = self.parent.after(2000, self.resize, False, geom)
+    use_aspect_ratio = self.controller.get_keep_aspect_ratio()
+    if use_aspect_ratio:
+      geom = "{}x{}".format(event.width, int(event.width / self.aspect_ratio))
+    else:
+      geom = "{}x{}".format(event.width, event.height)
+    self._after_id = self.parent.after(2000, self.resize, False, geom, use_aspect_ratio)
       
   def init(self, pages, startslide):
     self.pages = pages
     self.startslide = int(startslide)
     self.current_slide = self.startslide
     self.resize(initial=True, geom=None)
+    self.aspect_ratio = self.list_images[0].width() / self.list_images[0].height()
   
-  def resize(self, initial=False, geom=None):
+  def resize(self, initial=False, geom=None, resize_frame=False):
     if geom is None or geom != self.last_geom:
       if geom is not None:
         self.last_geom = geom
       self.list_images = []
       pic_width = self.frame.winfo_width()
-      pic_height = self.frame.winfo_height()
+      pic_height = self.frame.winfo_height() if not resize_frame else int(geom.partition("x")[2])
+      if resize_frame:
+        self.parent.geometry(geom)
       # Storing the converted images into list
       max_w = 0
       for i in range(len(self.pages)):
@@ -92,6 +99,7 @@ class SlideView:
 class PresenterView(tk.Frame):
 
   def __init__(self, parent, pdffile, startslide, *args, **kwargs):
+    self.is_initialized = False
 
     tk.Frame.__init__(self, parent, *args, **kwargs)
 
@@ -171,6 +179,10 @@ class PresenterView(tk.Frame):
     self.btn_rn_text.set("Reload Notes")
     self.btn_rn.pack()
     
+    self.btn_keep_aspect_ratio = tk.IntVar(value=1)
+    self.btn_keep_aspect_ratio_check = tk.Checkbutton(self.frame4, text="Keep Aspect Ratio of Slides when Resizing", variable=self.btn_keep_aspect_ratio)
+    self.btn_keep_aspect_ratio_check.pack()
+    
     self.notes_txt = HtmlFrame(self.frame3)
     self.notes_txt.pack(side=tk.LEFT, fill=tk.BOTH, expand=0)
     self.frame5 = tk.Frame(self.frame3, width=30)
@@ -189,7 +201,13 @@ class PresenterView(tk.Frame):
     self.root.update()
     self._after_id = None
     self.root.after(500, self.load_and_init, startslide, max_h)
-
+  
+  def get_keep_aspect_ratio(self):
+    if self.is_initialized:
+      return self.btn_keep_aspect_ratio.get() == 1
+    else:
+      return False
+  
   def schedule_redraw(self, event):
     if self._after_id:
         self.after_cancel(self._after_id)
@@ -207,6 +225,7 @@ class PresenterView(tk.Frame):
     self.update_clock()
     self.resize(initial=True)
     self.root.bind('<Configure>', self.schedule_redraw)
+    self.is_initialized = True
   
   def resize(self, initial=False):
     # call self
