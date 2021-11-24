@@ -13,15 +13,35 @@ import re
 import subprocess
 from datetime import datetime
 
+from string import Template
+
+class DeltaTemplate(Template):
+    delimiter = "%"
+
+def strfdelta(tdelta, fmt):
+  # based on https://stackoverflow.com/a/30536361
+  d = {"D": tdelta.days}
+  hours, rem = divmod(tdelta.seconds, 3600)
+  minutes, seconds = divmod(rem, 60)
+  d["H"] = '{:02d}'.format(hours)
+  d["M"] = '{:02d}'.format(minutes)
+  d["S"] = '{:02d}'.format(seconds)
+  d["f"] = '{:03d}'.format(int(tdelta.microseconds / 1000))
+  t = DeltaTemplate(fmt)
+  return t.substitute(**d)
 
 class SlideView:
   def __init__(self, parent, controller):
     self.parent = parent
     self.controller = controller
+    self.resize_from_update = False
     self.parent.bind('<KeyPress>', self.controller.onKeyPress)
-    max_w = round(self.parent.winfo_screenwidth() * .95)
-    max_h = round(self.parent.winfo_screenheight() * .91)
-    self.frame = tk.Frame(self.parent, width=round(max_w * .75), height=max_h, bg="black")
+    self.max_w = round(self.parent.winfo_screenwidth() * .97)
+    self.max_h = round(self.parent.winfo_screenheight() * .94)
+    self.frame = tk.Frame(self.parent, width=round(self.max_w * .75), height=self.max_h, bg="black")
+    # ~ self.max_w = 1920
+    # ~ self.max_h = 1080
+    # ~ self.frame = tk.Frame(self.parent, width=self.max_w+6, height=self.max_h+6, bg="black")
     self.frame.pack(fill=tk.BOTH, expand=1)
     self.defaultbg = self.parent.cget('bg')
 
@@ -37,16 +57,28 @@ class SlideView:
                                         not self.parent.attributes("-fullscreen")))
     self.parent.bind("<Escape>", lambda event: self.parent.attributes("-fullscreen", False))
     self.last_geom = "{}x{}".format(self.parent.winfo_width(), self.parent.winfo_height())
+    # ~ self.last_geom = "1920x1080"
   
   def schedule_redraw(self, event):
+    # ~ print(self.resize_from_update, event)
     if self._after_id:
-        self.parent.after_cancel(self._after_id)
-    use_aspect_ratio = self.controller.get_keep_aspect_ratio()
-    if use_aspect_ratio:
-      geom = "{}x{}".format(event.width, int(event.width / self.aspect_ratio))
-    else:
-      geom = "{}x{}".format(event.width, event.height)
-    self._after_id = self.parent.after(2000, self.resize, False, geom, use_aspect_ratio)
+      # ~ print(self._after_id)
+      self.parent.after_cancel(self._after_id)
+    if not self.resize_from_update:
+      use_aspect_ratio = self.controller.get_keep_aspect_ratio()
+      if use_aspect_ratio:
+        new_h = round(int(event.width) / self.aspect_ratio)
+        if new_h > self.max_h:
+          new_h = self.max_h # if given height exceeds max, use max
+        new_w = round(new_h * self.aspect_ratio) # derive width
+        if new_w > self.max_w: # if it exceeds max width
+          new_w = self.max_w # use max
+          new_h = round(new_w / self.aspect_ratio) # and downsize height
+        geom = "{}x{}".format(new_w, new_h)
+      else:
+        geom = "{}x{}".format(event.width, event.height)
+      self._after_id = self.parent.after(2000, self.resize, False, geom, use_aspect_ratio)
+      
       
   def init(self, pages, startslide):
     self.pages = pages
@@ -59,11 +91,20 @@ class SlideView:
     if geom is None or geom != self.last_geom:
       if geom is not None:
         self.last_geom = geom
-      self.list_images = []
-      pic_width = self.frame.winfo_width()
-      pic_height = self.frame.winfo_height() if not resize_frame else int(geom.partition("x")[2])
       if resize_frame:
-        self.parent.geometry(geom)
+        parted = geom.partition('x')
+        new_w = int(parted[0])
+        new_h = int(parted[2])
+        if not self.resize_from_update:
+          self.resize_from_update = True
+          self.parent.geometry(geom)
+      else:
+        new_w = self.frame.winfo_width()
+        new_h = self.frame.winfo_height()
+      pic_width = new_w
+      pic_height = new_h
+      print(pic_width,'x',pic_height)
+      self.list_images = []
       # Storing the converted images into list
       max_w = 0
       for i in range(len(self.pages)):
@@ -113,6 +154,7 @@ class PresenterView(tk.Frame):
     self.pdffile = pdffile
 
     self.rec_is_recording = False
+    self.rec_is_paused = False
     self.rec_basepath = Path(self.pdffile).absolute().parent
     self.rec_basename = pdffile.replace('.pdf','')
     self.rec_timing_file = self.pdffile.replace('.pdf','-timing.chap')
@@ -128,11 +170,13 @@ class PresenterView(tk.Frame):
     max_w = round(self.root.winfo_screenwidth() * .95)
     max_h = round(self.root.winfo_screenheight() * .91)
     this_w = round(max_w * .35)
-    slide_w = round(max_w * .55)
+    # ~ slide_w = round(max_w * .55)
+    slide_w = 1926
     
+    # todo initialize screen size correctly!
     self.slide_window = tk.Toplevel(self.root)
-    self.slide_window.geometry("{}x{}+{}+{}".format(slide_w, 
-                                max_h,
+    self.slide_window.geometry("{}x{}+{}+{}".format(slide_w, #slide_w
+                                1086, # max_h
                                 30, 
                                 30))
     self.slide_viewer = SlideView(self.slide_window, self)
@@ -168,6 +212,21 @@ class PresenterView(tk.Frame):
     self.btn = tk.Button(self.frame4, textvariable = self.btn_text, command = self.toggle_recording)
     self.btn_text.set("Start Recording")
     self.btn.pack()
+    self.additional_source = tk.IntVar(value=0)
+    self.additional_source_r1 = tk.Radiobutton(self.frame4, text="Nothing, just slides", variable=self.additional_source, value=0)
+    self.additional_source_r1.pack()
+    self.additional_source_r2 = tk.Radiobutton(self.frame4, text="Webcam on /dev/video0", variable=self.additional_source, value=1)
+    self.additional_source_r2.pack()
+    self.additional_source_r3 = tk.Radiobutton(self.frame4, text="Another region of the screen:", variable=self.additional_source, value=2)
+    self.additional_source_r3.pack()
+    
+    self.second_offset_entry = tk.Entry(self.frame4)
+    self.second_offset_entry.pack()
+    
+    self.btn_rec_pause_text = tk.StringVar()
+    self.btn_rec_pause = tk.Button(self.frame4, textvariable = self.btn_rec_pause_text, command = self.toggle_recording_pause)
+    self.btn_rec_pause_text.set("Pause Recording")
+    self.btn_rec_pause.pack()
     
     self.btn_fs = tk.Button(self.frame4, text = "Toggle Slide Fullscreen", command = lambda: self.slide_window.attributes("-fullscreen",
                                                                                                     not self.slide_window.attributes("-fullscreen")))
@@ -178,6 +237,13 @@ class PresenterView(tk.Frame):
     self.btn_rn = tk.Button(self.frame4, textvariable = self.btn_rn_text, command = self.update_notes)
     self.btn_rn_text.set("Reload Notes")
     self.btn_rn.pack()
+    
+    self.new_geometry_entry = tk.Entry(self.frame4)
+    self.new_geometry_entry.pack()
+    self.btn_rs_text = tk.StringVar()
+    self.btn_rs = tk.Button(self.frame4, textvariable = self.btn_rs_text, command = self.resize_to_input)
+    self.btn_rs_text.set("Resize to Geometry")
+    self.btn_rs.pack()
     
     self.btn_keep_aspect_ratio = tk.IntVar(value=1)
     self.btn_keep_aspect_ratio_check = tk.Checkbutton(self.frame4, text="Keep Aspect Ratio of Slides when Resizing", variable=self.btn_keep_aspect_ratio)
@@ -208,6 +274,24 @@ class PresenterView(tk.Frame):
     else:
       return False
   
+  def get_record_additional_source(self):
+    if self.is_initialized:
+      return self.additional_source.get() > 0
+    else:
+      return False
+  
+  def get_record_webcam(self):
+    if self.is_initialized:
+      return self.additional_source.get() == 1
+    else:
+      return False
+  
+  def get_record_second_region(self):
+    if self.is_initialized:
+      return self.additional_source.get() == 2
+    else:
+      return False
+  
   def schedule_redraw(self, event):
     if self._after_id:
         self.after_cancel(self._after_id)
@@ -216,7 +300,7 @@ class PresenterView(tk.Frame):
   
   def load_and_init(self, startslide, max_h):
     # Here the PDF is converted to list of images
-    self.pages = convert_from_path(self.pdffile,size=(None, max_h*4.1),dpi=300)
+    self.pages = convert_from_path(self.pdffile,size=(None, max_h*2.0),dpi=300)
     self.counter = int(startslide)-1
     self.max_count = len(self.pages)
     self.slide_viewer.init(self.pages, self.counter)
@@ -226,6 +310,12 @@ class PresenterView(tk.Frame):
     self.resize(initial=True)
     self.root.bind('<Configure>', self.schedule_redraw)
     self.is_initialized = True
+  
+  def resize_to_input(self):
+    other_geom = self.new_geometry_entry.get() # 1178x730+154+327
+    if other_geom != '' and 'x' in other_geom:
+      self.slide_viewer.resize(geom=other_geom, resize_frame=True)
+    
   
   def resize(self, initial=False):
     # call self
@@ -249,6 +339,16 @@ class PresenterView(tk.Frame):
       # ~ self.frame_right.config(width=self.root.winfo_width()-max_w)
       # ~ self.notes_txt.config(width=self.root.winfo_width()-max_w-30)
 
+  def toggle_recording_pause(self):
+    if self.rec_is_recording:
+      if self.rec_is_paused:
+        self.btn_rec_pause_text.set("Pause Recording")
+        self.rec_is_paused = False
+      else:
+        self.btn_rec_pause_text.set("Resume Recording")
+        self.rec_is_paused = True
+    
+
   def toggle_recording(self):
     if self.rec_is_recording:
       self.btn_text.set("Start Recording")
@@ -258,35 +358,83 @@ class PresenterView(tk.Frame):
       while self.rec_recorder.poll() is None:
         pass
       if mb.askyesno("Recording finished", "Do you want to produce the final file right away?"):
-        rec_producer = subprocess.Popen(["mate-terminal",
-                                         "--execute","producerecording",
-                                         self.rec_basename+'-audio.flac',
-                                         self.rec_basename+'-screen.mp4',
-                                         self.rec_basename+'-timing.chap',
-                                         self.rec_basename+'.mp4'],
-                                         cwd=self.rec_basepath)
+        cmd = ["mate-terminal",
+               "--execute","producerecording",
+               self.rec_basename+'-audio.flac',
+               self.rec_basename+'-screen.mkv',
+               self.rec_basename+'-timing.chap',
+               self.rec_basename+'.mp4']
+        if self.get_record_additional_source():
+          cmd.append(self.rec_basename+'-webcam.mkv')
+          cmd.append(self.rec_basename+'-combined.mp4')
+          cmd.append(self.rec_basename+'-webcam-audio.mkv')
+        rec_producer = subprocess.Popen(cmd, cwd=self.rec_basepath)
         rec_producer.communicate()
+        mp.showinfo("Done","Producing recording is done")
+      elif self.get_record_additional_source():
+        if mb.askyesno("Join video and audio?", "Do you want to join webcam and audio then?"):
+          cmd = ['ffmpeg',
+               '-i',self.rec_basename+'-webcam.mkv',
+               '-itsoffset','00:00.50','-i',self.rec_basename+'-audio.flac',
+               '-map','0:v','-map','1:a','-c','copy',self.rec_basename+'-webcam-audio.mkv']
+          rec_joiner = subprocess.Popen(cmd, cwd=self.rec_basepath)
+          rec_joiner.communicate()
+          mb.showinfo("Done","Merging audio and video is done")
+        
     else:
+      
       self.btn_text.set("Stop Recording")
       self.rec_is_recording = True
       
       geom = self.slide_viewer.get_recording_geom()
-      geom = "{}x{}+{}+{}".format(geom[0]-6,
-                                  geom[1]-6,
-                                  geom[2]+3,
-                                  geom[3]+3)
+      # ~ geom = "{}x{}+{}+{}".format(geom[0]-6,
+                                  # ~ geom[1]-6,
+                                  # ~ geom[2]+3,
+                                  # ~ geom[3]+3)
+      other_geom = self.second_offset_entry.get() # 1178x730+154+327
+      
       self.rec_timing_starttime = datetime.now()
       with open(self.rec_timing_file, 'w') as tf:
         print("{} S".format(self.rec_timing_starttime), file=tf)
-      self.rec_recorder = subprocess.Popen(["record",self.rec_basename,geom])
+      with open(self.rec_timing_file_vtt, 'w') as tf:
+        print("WEBVTT\n\n", file=tf)
+      
+      
+      screenCodec="libx264"
+      screenOptions="-preset ultrafast -qp 0 -pix_fmt yuv444p"
+      webcamCodec="libx265"
+      webcamOptions="-preset fast -crf 26"
+      webcamSize="960x544"
+      webcamSource="/dev/video0"
+      
+      audioFile  = self.rec_basename+'-audio.flac'
+      screenFile = self.rec_basename+'-screen.mkv'
+      webcamFile = self.rec_basename+'-webcam.mkv'
+      
+      if self.get_record_additional_source():
+        if self.get_record_webcam():
+          cmd = f"ffmpeg -y -f x11grab -show_region 1 -video_size {geom[0]-6}x{geom[1]-6} -r 4 -thread_queue_size 1024 -i :0.0+{geom[2]+3},{geom[3]+3} -f v4l2 -ts abs -video_size {webcamSize} -thread_queue_size 1024 -i {webcamSource} -f alsa -ac 1 -ar 48000 -thread_queue_size 1024 -i default -map 0:v:0 -c:v {screenCodec} {screenOptions} {screenFile} -map 1:v:0 -c:v {webcamCodec} {webcamOptions} {webcamFile} -map 2:a:0 {audioFile}"
+          
+        elif self.get_record_second_region():
+          other_geom = other_geom.strip().split('+')
+          xy = other_geom[0].split('x')
+          cmd = f"ffmpeg -y -f x11grab -show_region 1 -video_size {geom[0]-6}x{geom[1]-6} -r 4 -thread_queue_size 1024 -i :0.0+{geom[2]+3},{geom[3]+3} -f x11grab -show_region 1 -video_size {xy[0]}x{xy[1]} -r 25 -thread_queue_size 1024 -i :0.0+{other_geom[1]},{other_geom[2]} -f alsa -ac 1 -ar 48000 -thread_queue_size 1024 -i default -map 0:v:0 -c:v {screenCodec} {screenOptions} {screenFile} -map 1:v:0 -c:v {webcamCodec} {webcamOptions} {webcamFile} -map 2:a:0 {audioFile}"
+          
+      else:  
+        cmd = f"ffmpeg -y -f x11grab -show_region 1 -video_size {geom[0]-6}x{geom[1]-6} -r 4 -thread_queue_size 1024 -i :0.0+{geom[2]+3},{geom[3]+3} -f alsa -ac 1 -ar 48000 -thread_queue_size 1024 -i default -map 0:v:0 -c:v {screenCodec} {screenOptions} {screenFile} -map 1:a:0 {audioFile}"
+      
+      self.rec_recorder = subprocess.Popen(cmd.split(' '))
   
   def log_timing(self, marker=None):
     if self.rec_is_recording:
       diff = datetime.now() - self.rec_timing_starttime
-      diff = str(diff).split('.')[0]
+      last = self.rec_timing_markers[-1] if len(self.rec_timing_markers) > 0 else self.rec_timing_starttime - self.rec_timing_starttime
       self.rec_timing_markers.append(diff)
+      out_mark = self.counter + 1 if marker is None else marker
       with open(self.rec_timing_file, 'a') as tf:
-        print("{} {}".format(datetime.strftime(datetime.strptime(diff, "%H:%M:%S"), "%H:%M:%S"), self.counter+1 if marker is None else marker), file=tf)
+        print("{} {}".format(strfdelta(diff, "%H:%M:%S"), out_mark), file=tf)
+      with open(self.rec_timing_file_vtt, 'a') as tf:
+        print("{}\n{} --> {}\n".format(out_mark, strfdelta(last, "%H:%M:%S,%f"), strfdelta(diff, "%H:%M:%S,%f")), file=tf)
     
   
   def next_image(self):
