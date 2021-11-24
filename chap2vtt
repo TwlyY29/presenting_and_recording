@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+
+import subprocess
+
+def format_time(time):
+  if '.' in time:
+    return time
+  else:
+    return time + '.000'
+
+def get_length(filename):
+  result = subprocess.run(["ffprobe", "-v", "error", "-show_entries",
+                           "format=duration", "-sexagesimal", "-of",
+                           "default=noprint_wrappers=1:nokey=1", filename],
+      stdout=subprocess.PIPE,
+      stderr=subprocess.STDOUT)
+  return result.stdout.decode("utf-8").strip()
+
+def main(timing_file, video_file):
+  outfile = timing_file.replace('chap','vtt')
+  with open(outfile, 'w') as tf:
+    print("WEBVTT\n\n", file=tf)
+  
+  markers = []
+  with open(timing_file, 'r') as chap:
+    first = True
+    for line in chap:
+      if first:
+        first = False
+        continue
+      else:
+        parts = line.strip().split(' ', 1)
+        markers.append({'time': parts[0], 'title':parts[1]})
+  markers.append({'time': get_length(video_file), 'title':'End'})
+  
+  with open(outfile, 'w') as vtt:
+    print('WEBVTT\n\n', file=vtt)
+    _len = len(markers)
+    for i, item in enumerate(markers):
+      if i == 0:
+        print(f"""{i}
+00:00:00.000 --> {format_time(item['time'])}
+- Beginning
+""", file=vtt)
+      print(f"""{i+1}
+{format_time(item['time'])} --> {format_time(markers[i+1]['time'])}
+- {item['title']}
+""", file=vtt)
+      if i == _len-2:
+        break
+      
+  
+if __name__=='__main__':
+  import plac
+  plac.call(main)
