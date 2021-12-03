@@ -1,0 +1,32 @@
+#!/usr/bin/env python3
+
+from datetime import datetime
+# ~ from math import ceil
+import sys
+
+fmt = '%H:%M:%S.%f'
+
+def main(timecodefile, pattern='slides/slide-{:03d}.png', file_index_zero_based=True):
+  out = ["ffconcat version 1.0"]
+  with open(timecodefile, 'r') as tf:
+    lines = tf.readlines()
+    # ~ lines[0] = '00:00:00 1' # first line of chap-file contains metadata
+    lines.pop(0)
+    n_lines = len(lines)
+    path = None
+    for i, line in enumerate(lines):
+      line = line.strip().split(' ')
+      if i < (n_lines-1):
+        t = datetime.strptime(line[0], fmt)
+        line2 = (lines[i+1]).strip().split(' ')
+        td = datetime.strptime(line2[0], fmt) - t
+        print(line,line2,round(td.total_seconds(), 2),file=sys.stderr)
+        slide = int(line[1])
+        path = pattern.format(slide-1 if file_index_zero_based else slide)
+        out.append(f"file {path}\nduration {round(td.total_seconds(), 2)}")
+  out.append(f"file {path}")
+  print('\n'.join(out))
+
+if __name__=='__main__':
+  import plac
+  plac.call(main)
