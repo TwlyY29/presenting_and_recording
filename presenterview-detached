@@ -9,9 +9,13 @@ from PIL import Image,ImageTk,ImageDraw
 from pdf2image import convert_from_path
 from pathlib import Path
 import os
+import signal
 import re
+import time
+import math
 import subprocess
-from datetime import datetime
+from datetime import datetime, timedelta
+from tempfile import TemporaryDirectory,NamedTemporaryFile
 
 from string import Template
 
@@ -103,7 +107,6 @@ class SlideView:
         new_h = self.frame.winfo_height()
       pic_width = new_w
       pic_height = new_h
-      print(pic_width,'x',pic_height)
       self.list_images = []
       # Storing the converted images into list
       max_w = 0
@@ -153,6 +156,7 @@ class PresenterView(tk.Frame):
     
     self.pdffile = pdffile
 
+    self.rec_recorder = None
     self.rec_is_recording = False
     self.rec_is_paused = False
     self.rec_basepath = Path(self.pdffile).absolute().parent
@@ -170,13 +174,13 @@ class PresenterView(tk.Frame):
     max_w = round(self.root.winfo_screenwidth() * .95)
     max_h = round(self.root.winfo_screenheight() * .91)
     this_w = round(max_w * .35)
-    # ~ slide_w = round(max_w * .55)
-    slide_w = 1926
+    slide_w = round(max_w * .55)
+    # ~ slide_w = 1926
     
     # todo initialize screen size correctly!
     self.slide_window = tk.Toplevel(self.root)
     self.slide_window.geometry("{}x{}+{}+{}".format(slide_w, #slide_w
-                                1086, # max_h
+                                max_h,
                                 30, 
                                 30))
     self.slide_viewer = SlideView(self.slide_window, self)
@@ -212,16 +216,24 @@ class PresenterView(tk.Frame):
     self.btn = tk.Button(self.frame4, textvariable = self.btn_text, command = self.toggle_recording)
     self.btn_text.set("Start Recording")
     self.btn.pack()
-    self.additional_source = tk.IntVar(value=0)
-    self.additional_source_r1 = tk.Radiobutton(self.frame4, text="Nothing, just slides", variable=self.additional_source, value=0)
-    self.additional_source_r1.pack()
-    self.additional_source_r2 = tk.Radiobutton(self.frame4, text="Webcam on /dev/video0", variable=self.additional_source, value=1)
-    self.additional_source_r2.pack()
-    self.additional_source_r3 = tk.Radiobutton(self.frame4, text="Another region of the screen:", variable=self.additional_source, value=2)
-    self.additional_source_r3.pack()
+    self.additional_source_animated_slides = tk.IntVar(value=0)
+    self.additional_source_animated_slides_check = tk.Checkbutton(self.frame4, text="Animated slides", variable=self.additional_source_animated_slides)
+    self.additional_source_animated_slides_check.pack()
+    
+    self.additional_source_webcam = tk.IntVar(value=0)
+    self.additional_source_webcam_check = tk.Checkbutton(self.frame4, text="Webcam on /dev/video0", variable=self.additional_source_webcam)
+    self.additional_source_webcam_check.pack()
+    
+    self.additional_source_another_region = tk.IntVar(value=0)
+    self.additional_source_another_region_check = tk.Checkbutton(self.frame4, text="Another region of the screen:", variable=self.additional_source_another_region)
+    self.additional_source_another_region_check.pack()
     
     self.second_offset_entry = tk.Entry(self.frame4)
     self.second_offset_entry.pack()
+    
+    self.btn_write_vtt = tk.IntVar(value=0)
+    self.btn_write_vtt_check = tk.Checkbutton(self.frame4, text="Produce WebVTT file during recording", variable=self.btn_write_vtt)
+    self.btn_write_vtt_check.pack()
     
     self.btn_rec_pause_text = tk.StringVar()
     self.btn_rec_pause = tk.Button(self.frame4, textvariable = self.btn_rec_pause_text, command = self.toggle_recording_pause)
@@ -274,21 +286,27 @@ class PresenterView(tk.Frame):
     else:
       return False
   
-  def get_record_additional_source(self):
+  def get_record_animated_slides(self):
     if self.is_initialized:
-      return self.additional_source.get() > 0
+      return self.additional_source_animated_slides.get() == 1
     else:
       return False
   
   def get_record_webcam(self):
     if self.is_initialized:
-      return self.additional_source.get() == 1
+      return self.additional_source_webcam.get() == 1
     else:
       return False
   
   def get_record_second_region(self):
     if self.is_initialized:
-      return self.additional_source.get() == 2
+      return self.additional_source_another_region.get() == 1
+    else:
+      return False
+  
+  def get_write_vtt(self):
+    if self.is_initialized:
+      return self.btn_write_vtt.get() == 1
     else:
       return False
   
@@ -344,97 +362,211 @@ class PresenterView(tk.Frame):
       if self.rec_is_paused:
         self.btn_rec_pause_text.set("Pause Recording")
         self.rec_is_paused = False
+        os.kill(self.rec_recorder.pid, signal.SIGCONT)
       else:
         self.btn_rec_pause_text.set("Resume Recording")
         self.rec_is_paused = True
-    
+        os.kill(self.rec_recorder.pid, signal.SIGSTOP)
+        
+  
+  def join_video_audio(self, v, a, o, a_offset='00:00.00', v_offset='00:00.00', a_cut=False, v_cut=False, a_start='00:00.00', v_start='00:00.00'):
+    cmd = ['ffmpeg','-y',
+         '-itsoffset',v_offset,'-ss',v_start]
+    if v_cut is not False:
+      cmd.extend(['-t',v_cut])
+    cmd.extend(['-i',v,
+         '-itsoffset',a_offset,'-ss',a_start])
+    if a_cut is not False:
+         cmd.extend(['-t',a_cut])
+    cmd.extend(['-i',a,
+         '-map','0:v','-map','1:a','-c','copy', o])
+    print(cmd)
+    rec_joiner = subprocess.Popen(cmd, cwd=self.rec_basepath, stdout=subprocess.PIPE)
+    rec_joiner.communicate()
+    # ~ if a_start != '00:00.00' and v_start != '00:00.00':
+      # ~ ext = Path(o).suffix
+      # ~ rec_joiner = subprocess.Popen(['ffmpeg','-y','-i',o,'-start_at_zero','-map','0:v','-c:v','copy','-map','0:a','-c:a','copy','arg'+ext], cwd=self.rec_basepath, stdout=subprocess.PIPE)
+      # ~ rec_joiner.communicate()
+  
+  def produce_recording(self):
+    if not self.get_record_animated_slides():
+      if mb.askyesno("Recording finished", "Do you want to produce the slideshow file right away?"):
+        with TemporaryDirectory() as tmpdir:
+          i=0
+          w=0
+          h=0
+          for i,page in enumerate(self.pages):
+            fname = '{}/slide-{:03d}.png'.format(tmpdir,i)
+            h = min(self.root.winfo_screenheight(), 1080)
+            w = int(round(h * page.width / page.height))
+            img = page.resize((w,h), Image.ANTIALIAS)
+            img.save(fname, 'png', compress_level=6)
+          fname = '{}/slide-{:03d}.png'.format(tmpdir,i+1)
+          img = ImageTk.getimage(self.make_dummy(w,h, marked=False))
+          img.save(fname, 'png', compress_level=9)
+          cmd = ["chap2ffconcat", self.rec_timing_file, '{}/slide-{{:03d}}.png'.format(tmpdir)]
+          with NamedTemporaryFile() as tmpfile: 
+            subprocess.run(cmd, stdout=tmpfile, cwd=self.rec_basepath)
+            ts = str(math.floor(self.rec_timing_markers[-1].total_seconds()))
+            cmd = ['ffmpeg','-y','-safe','0','-f','concat','-i',tmpfile.name,'-t',ts,'-c:v','libx264','-vf','format=yuv420p','-fflags','+genpts','-movflags','+faststart',self.rec_basename+'-screen.mp4']
+            # ~ cmd = ['ffmpeg','-y','-safe','0','-f','concat','-i',tmpfile.name,'-c:v','libx264','-vf','format=yuv420p','-fflags','+genpts','-movflags','+faststart',self.rec_basename+'-screen.mp4']
+            rec_producer = subprocess.Popen(cmd, cwd=self.rec_basepath)
+            rec_producer.communicate()
 
+      if mb.askyesno("Join video and audio?", "Do you want to join slideshow and audio now?"):
+        diff = self.rec_timing_starttime - self.rec_audio_start
+        self.join_video_audio(self.rec_basename+'-screen.mp4', self.rec_basename+'-audio.flac', self.rec_basename+'-slides-audio.mkv', v_offset = strfdelta(diff, "%H:%M:%S.%f"))
+        mb.showinfo("Done","Merging audio and video is done")
+        
+      # appears as if recording x11 AND webcam requires other offsets...
+      if self.get_record_webcam():
+        if mb.askyesno("Join video and audio?", "Do you want to join webcam video and audio?"):
+          # ~ diff = self.rec_audio_start - self.rec_webcam_start
+          # ~ diff += timedelta(seconds=1)
+          # ~ diff = strfdelta(diff, "%H:%M:%S.%f")
+          # ~ self.join_video_audio(self.rec_basename+'-webcam.mkv', self.rec_basename+'-audio.flac', self.rec_basename+'-webcam-audio.mkv', v_start = diff, a_start = diff, a_offset='00:00.50')
+          self.join_video_audio(self.rec_basename+'-webcam.mkv', self.rec_basename+'-audio.flac', self.rec_basename+'-webcam-audio.mkv', a_offset='00:00.50')
+          mb.showinfo("Done","Merging audio and video is done")
+        
+    elif mb.askyesno("Join video and audio?", "Do you want to join slides-video and audio now?"):
+      ts = str(math.floor(self.rec_timing_markers[-1].total_seconds()))
+      self.join_video_audio(self.rec_basename+'-screen.mkv', self.rec_basename+'-audio.flac', self.rec_basename+'-screen-audio.mkv', v_cut=ts)
+      mb.showinfo("Done","Merging audio and video is done")
+      
+      if self.get_record_webcam():
+        if mb.askyesno("Join video and audio?", "Do you want to join webcam video and audio?"):
+          self.join_video_audio(self.rec_basename+'-webcam.mkv', self.rec_basename+'-audio.flac', self.rec_basename+'-webcam-audio.mkv', v_offset='-00:01.00')
+          mb.showinfo("Done","Merging audio and video is done")
+    
+  
+  def ffmpeg_configure_and_start(self):
+    geom = self.slide_viewer.get_recording_geom()
+    if geom[0] % 2 != 0:
+      geom = (geom[0]-1, geom[1], geom[2]+1, geom[3])
+    if geom[1] % 2 != 0:
+      geom = (geom[0], geom[1]-1, geom[2], geom[3]+1)
+    # ~ geom = "{}x{}+{}+{}".format(geom[0]-6,
+                                # ~ geom[1]-6,
+                                # ~ geom[2]+3,
+                                # ~ geom[3]+3)
+    other_geom = self.second_offset_entry.get() # 1178x730+154+327
+    
+    screenCodec="libx264"
+    screenOptions="-preset ultrafast -qp 0 -pix_fmt yuv444p"
+    webcamCodec="libx265"
+    webcamOptions="-preset fast -crf 26"
+    webcamSize="960x540"
+    webcamSource="/dev/video0"
+    
+    audioFile  = self.rec_basename+'-audio.flac'
+    screenFile = self.rec_basename+'-screen.mkv'
+    screen_otherFile = self.rec_basename+'-screen2.mkv'
+    webcamFile = self.rec_basename+'-webcam.mkv'
+    
+    i_audio = "-f alsa -ac 1 -ar 48000 -thread_queue_size 2048 -i sysdefault:CARD=CM900"
+    # ~ i_audio = "-f alsa -ac 1 -ar 48000 -thread_queue_size 1024 -i default"
+    # ~ i_audio = "-f pulse -thread_queue_size 1024 -i alsa_input.usb-Auna_Mic_CM900_Auna_Mic_CM900-00.mono-fallback" # analog-input-mic
+    i_screen = f"-f x11grab -show_region 0 -video_size {geom[0]}x{geom[1]} -r 4 -thread_queue_size 1024 -i :0.0+{geom[2]},{geom[3]}"
+    i_webcam = f"-f v4l2 -ts abs -video_size {webcamSize} -thread_queue_size 1024 -i {webcamSource}"
+    
+    o_screen = f"-c:v {screenCodec} {screenOptions} {screenFile}"
+    o_screen_other = f"-c:v {webcamCodec} {webcamOptions} {screen_otherFile}"
+    o_webcam = f"-c:v {webcamCodec} {webcamOptions} {webcamFile}"
+    
+    
+    n_audio = 0
+    n_screen = 0
+    n_webcam = 0
+    
+    cmd = f"ffmpeg -y"
+    out_map = ""
+    i_n = 0
+    
+    if self.get_record_webcam():
+      cmd += ' '+i_webcam
+      out_map += ' '+f"-map {i_n}:v:0 {o_webcam}"
+      i_n += 1
+      
+    if self.get_record_second_region():
+      other_geom = other_geom.strip().split('+')
+      xy = other_geom[0].split('x')
+      cmd += ' '+f"-f x11grab -show_region 1 -video_size {xy[0]}x{xy[1]} -r 25 -thread_queue_size 1024 -i :0.0+{other_geom[1]},{other_geom[2]}"
+      out_map += ' '+f"-map {i_n}:v:0 {o_screen_other}"
+      i_n += 1
+      
+    if self.get_record_animated_slides():
+      cmd += ' '+i_screen
+      out_map += ' '+f"-map {i_n}:v:0 {o_screen}"
+      i_n += 1
+      
+    cmd += ' '+i_audio
+    out_map += ' '+f"-map {i_n}:a:0 {audioFile}"
+    
+    cmd = cmd + out_map
+    print(cmd)
+    
+    # ~ wait_for_start = False
+    wait_for_start = self.get_record_webcam() or self.get_record_second_region()
+    if wait_for_start:
+      self.rec_recorder = subprocess.Popen(cmd.split(' '), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+    else:
+      self.rec_recorder = subprocess.Popen(cmd.split(' '))
+      self.rec_audio_start = datetime.now()
+      self.rec_webcam_start = None
+    while wait_for_start:
+      for line in self.rec_recorder.stdout:
+        print(line.strip())
+        m = re.match( r'^Output [^\']*\''+audioFile+'\'', line, re.M)
+        if m:
+          self.rec_audio_start = datetime.now()
+        m = re.match( r'^Output [^\']*\''+webcamFile+'\'', line, re.M)
+        if m:
+          self.rec_webcam_start = datetime.now()
+        m = re.match( r'^(frame|size)= *\d+', line, re.M)
+        if m:
+          wait_for_start = False
+          break
+  
   def toggle_recording(self):
     if self.rec_is_recording:
       self.btn_text.set("Start Recording")
+      self.log_timing(marker="END")
       self.rec_is_recording = False
-      self.rec_recorder.terminate()
+      if self.rec_recorder:
+        if self.get_record_webcam():
+          time.sleep(1)
+        if self.get_record_animated_slides():
+          time.sleep(3)
+        # ~ self.rec_recorder.terminate()
+        os.kill(self.rec_recorder.pid, signal.SIGINT)
+        while self.rec_recorder.poll() is None:
+          pass
+      self.produce_recording()
       self.rec_timing_starttime = None
-      while self.rec_recorder.poll() is None:
-        pass
-      if mb.askyesno("Recording finished", "Do you want to produce the final file right away?"):
-        cmd = ["mate-terminal",
-               "--execute","producerecording",
-               self.rec_basename+'-audio.flac',
-               self.rec_basename+'-screen.mkv',
-               self.rec_basename+'-timing.chap',
-               self.rec_basename+'.mp4']
-        if self.get_record_additional_source():
-          cmd.append(self.rec_basename+'-webcam.mkv')
-          cmd.append(self.rec_basename+'-combined.mp4')
-          cmd.append(self.rec_basename+'-webcam-audio.mkv')
-        rec_producer = subprocess.Popen(cmd, cwd=self.rec_basepath)
-        rec_producer.communicate()
-        mp.showinfo("Done","Producing recording is done")
-      elif self.get_record_additional_source():
-        if mb.askyesno("Join video and audio?", "Do you want to join webcam and audio then?"):
-          cmd = ['ffmpeg',
-               '-i',self.rec_basename+'-webcam.mkv',
-               '-itsoffset','00:00.50','-i',self.rec_basename+'-audio.flac',
-               '-map','0:v','-map','1:a','-c','copy',self.rec_basename+'-webcam-audio.mkv']
-          rec_joiner = subprocess.Popen(cmd, cwd=self.rec_basepath)
-          rec_joiner.communicate()
-          mb.showinfo("Done","Merging audio and video is done")
-        
     else:
-      
       self.btn_text.set("Stop Recording")
+      self.ffmpeg_configure_and_start()
       self.rec_is_recording = True
-      
-      geom = self.slide_viewer.get_recording_geom()
-      # ~ geom = "{}x{}+{}+{}".format(geom[0]-6,
-                                  # ~ geom[1]-6,
-                                  # ~ geom[2]+3,
-                                  # ~ geom[3]+3)
-      other_geom = self.second_offset_entry.get() # 1178x730+154+327
-      
+      self.log_timing(start=True)
+  
+  def log_timing(self, marker=None, start=False):
+    if start:
       self.rec_timing_starttime = datetime.now()
       with open(self.rec_timing_file, 'w') as tf:
         print("{} S".format(self.rec_timing_starttime), file=tf)
-      with open(self.rec_timing_file_vtt, 'w') as tf:
-        print("WEBVTT\n\n", file=tf)
-      
-      
-      screenCodec="libx264"
-      screenOptions="-preset ultrafast -qp 0 -pix_fmt yuv444p"
-      webcamCodec="libx265"
-      webcamOptions="-preset fast -crf 26"
-      webcamSize="960x544"
-      webcamSource="/dev/video0"
-      
-      audioFile  = self.rec_basename+'-audio.flac'
-      screenFile = self.rec_basename+'-screen.mkv'
-      webcamFile = self.rec_basename+'-webcam.mkv'
-      
-      if self.get_record_additional_source():
-        if self.get_record_webcam():
-          cmd = f"ffmpeg -y -f x11grab -show_region 1 -video_size {geom[0]-6}x{geom[1]-6} -r 4 -thread_queue_size 1024 -i :0.0+{geom[2]+3},{geom[3]+3} -f v4l2 -ts abs -video_size {webcamSize} -thread_queue_size 1024 -i {webcamSource} -f alsa -ac 1 -ar 48000 -thread_queue_size 1024 -i default -map 0:v:0 -c:v {screenCodec} {screenOptions} {screenFile} -map 1:v:0 -c:v {webcamCodec} {webcamOptions} {webcamFile} -map 2:a:0 {audioFile}"
-          
-        elif self.get_record_second_region():
-          other_geom = other_geom.strip().split('+')
-          xy = other_geom[0].split('x')
-          cmd = f"ffmpeg -y -f x11grab -show_region 1 -video_size {geom[0]-6}x{geom[1]-6} -r 4 -thread_queue_size 1024 -i :0.0+{geom[2]+3},{geom[3]+3} -f x11grab -show_region 1 -video_size {xy[0]}x{xy[1]} -r 25 -thread_queue_size 1024 -i :0.0+{other_geom[1]},{other_geom[2]} -f alsa -ac 1 -ar 48000 -thread_queue_size 1024 -i default -map 0:v:0 -c:v {screenCodec} {screenOptions} {screenFile} -map 1:v:0 -c:v {webcamCodec} {webcamOptions} {webcamFile} -map 2:a:0 {audioFile}"
-          
-      else:  
-        cmd = f"ffmpeg -y -f x11grab -show_region 1 -video_size {geom[0]-6}x{geom[1]-6} -r 4 -thread_queue_size 1024 -i :0.0+{geom[2]+3},{geom[3]+3} -f alsa -ac 1 -ar 48000 -thread_queue_size 1024 -i default -map 0:v:0 -c:v {screenCodec} {screenOptions} {screenFile} -map 1:a:0 {audioFile}"
-      
-      self.rec_recorder = subprocess.Popen(cmd.split(' '))
-  
-  def log_timing(self, marker=None):
+      if self.get_write_vtt():
+        with open(self.rec_timing_file_vtt, 'w') as tf:
+          print("WEBVTT\n\n", file=tf)
     if self.rec_is_recording:
       diff = datetime.now() - self.rec_timing_starttime
       last = self.rec_timing_markers[-1] if len(self.rec_timing_markers) > 0 else self.rec_timing_starttime - self.rec_timing_starttime
       self.rec_timing_markers.append(diff)
       out_mark = self.counter + 1 if marker is None else marker
       with open(self.rec_timing_file, 'a') as tf:
-        print("{} {}".format(strfdelta(diff, "%H:%M:%S"), out_mark), file=tf)
-      with open(self.rec_timing_file_vtt, 'a') as tf:
-        print("{}\n{} --> {}\n".format(out_mark, strfdelta(last, "%H:%M:%S,%f"), strfdelta(diff, "%H:%M:%S,%f")), file=tf)
+        print("{} {}".format(strfdelta(diff, "%H:%M:%S.%f"), out_mark), file=tf)
+      if self.get_write_vtt():
+        with open(self.rec_timing_file_vtt, 'a') as tf:
+          print("{}\n{} --> {}\n".format(out_mark, strfdelta(last, "%H:%M:%S,%f"), strfdelta(diff, "%H:%M:%S,%f")), file=tf)
     
   
   def next_image(self):
