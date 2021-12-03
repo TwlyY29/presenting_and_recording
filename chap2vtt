@@ -1,37 +1,23 @@
 #!/usr/bin/env python3
 
-import subprocess
-
 def format_time(time):
   if '.' in time:
     return time
   else:
     return time + '.000'
 
-def get_length(filename):
-  result = subprocess.run(["ffprobe", "-v", "error", "-show_entries",
-                           "format=duration", "-sexagesimal", "-of",
-                           "default=noprint_wrappers=1:nokey=1", filename],
-      stdout=subprocess.PIPE,
-      stderr=subprocess.STDOUT)
-  return result.stdout.decode("utf-8").strip()
-
-def main(timing_file, video_file):
+def main(timing_file):
   outfile = timing_file.replace('chap','vtt')
   with open(outfile, 'w') as tf:
     print("WEBVTT\n\n", file=tf)
   
   markers = []
   with open(timing_file, 'r') as chap:
-    first = True
+    next(chap) # skip header row
     for line in chap:
-      if first:
-        first = False
-        continue
-      else:
-        parts = line.strip().split(' ', 1)
-        markers.append({'time': parts[0], 'title':parts[1]})
-  markers.append({'time': get_length(video_file), 'title':'End'})
+      parts = line.strip().split(' ', 1)
+      markers.append({'time': parts[0], 'title':parts[1]})
+  # ~ markers.append({'time': get_length(video_file), 'title':'End'})
   
   with open(outfile, 'w') as vtt:
     print('WEBVTT\n\n', file=vtt)
