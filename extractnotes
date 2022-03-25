@@ -34,7 +34,7 @@ trap_with_arg() {
 
 # http://redsymbol.net/articles/bash-exit-traps/
 # wrapper function for signal https://stackoverflow.com/questions/9256644/identifying-received-signal-name-in-bash
-trap_with_arg die ERR HUP INT QUIT TERM SIGHUP SIGINT SIGTERM 
+trap_with_arg die HUP INT QUIT TERM SIGHUP SIGINT SIGTERM 
 
 while getopts ":h" opt; do
   case ${opt} in
@@ -44,30 +44,47 @@ while getopts ":h" opt; do
   esac
 done
 shift $((OPTIND -1))
-[ $# == 1 ] || { Help ; die "need a pptx file to process" ; }
+[ $# -le 2 ] || { Help ; die "need a pptx file to process" ; }
 
 pptx="$1"
-outfile=${pptx/.pptx/.notes}
+
+
+if [ $# == 2 ]; then
+outfile="$2"
+else
+outfile=$(basename "$pptx")
+outfile=${outfile/.pptx/.notes}
+fi
 echo "converting '$1' to '$outfile'"
 
 
+declare -A titles
 declare -A notes
 
 while read -r f; do
   xml=$( unzip -qc "$pptx" "$f" ) # unzip target
+  num=$( echo "$f" | sed -e s/[^0-9]//g )
+  title=$(echo "$xml" | xmlstarlet sel -t -m "//p:ph[@type='ctrTitle' or @type='title']/../../../p:txBody/a:p/a:r/a:t" -v '.' )
+  titles[$num]="$title"
+done < <( zipinfo -1 "$pptx" | grep "ppt/slides/slide[0-9]*.xml" ) # select slides
+# sort by slidenum
+mapfile -d '' sorted < <(printf '%02u\0' "${!titles[@]}" | sort -z)
+
+while read -r f; do
+  xml=$( unzip -qc "$pptx" "$f" ) # unzip target
   num=$(echo "$xml" | xmlstarlet sel -t -m "//a:fld[@type='slidenum']" -v . | tr -d '[:space:]')
-  slidenote="#$num"
+  slidenote=""
   while read -r line; do
-    slidenote=$( printf "%s\n\n%s" "$slidenote" "$line" )
+    slidenote=$( printf "%s\n%s" "$slidenote" "$line" )
   done < <( echo "$xml" | xmlstarlet sel -t -m "//p:txBody//a:p[.//a:r//a:t]" -v . -n )
   # create assoc array with slidenum as key
   notes[$num]="$slidenote" 
 done < <( zipinfo -1 "$pptx" | grep "ppt/notesSlides/notesSlide[0-9]*.xml" ) # select notesslides files only
-# sort by slidenum
-mapfile -d '' sorted < <(printf '%02u\0' "${!notes[@]}" | sort -z)
 
 # print out notes in order
 for key in "${sorted[@]}"; do
+    echo "#$key"
+    [ -z "${titles[$((10#$key))]}" ] || echo "#title: ${titles[$((10#$key))]}"
     echo "${notes[$((10#$key))]}" # remove leading zero: The $(()) sets up an arithmetic context and the 10# converts the number from base 10 to base 10 causing any leading zeros to be dropped.
     echo ""
     echo ""

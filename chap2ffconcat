@@ -5,6 +5,7 @@ from datetime import datetime
 import sys
 
 fmt = '%H:%M:%S.%f'
+ignore_marker = 'X'
 
 def main(timecodefile, pattern='slides/slide-{:03d}.png', file_index_zero_based=True):
   out = ["ffconcat version 1.0"]
@@ -16,9 +17,16 @@ def main(timecodefile, pattern='slides/slide-{:03d}.png', file_index_zero_based=
     path = None
     for i, line in enumerate(lines):
       line = line.strip().split(' ')
+      if line[1] == ignore_marker:
+        continue
       if i < (n_lines-1):
         t = datetime.strptime(line[0], fmt)
         line2 = (lines[i+1]).strip().split(' ')
+        j = 0
+        while (i+j) < n_lines and line2[1] == ignore_marker:
+          j += 1
+          if (i+j) < n_lines:
+            line2 = (lines[i+j]).strip().split(' ')
         td = datetime.strptime(line2[0], fmt) - t
         print(line,line2,round(td.total_seconds(), 2),file=sys.stderr)
         slide = int(line[1])

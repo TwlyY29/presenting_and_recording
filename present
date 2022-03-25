@@ -1,0 +1,41 @@
+#!/bin/bash
+
+PYFILE=~/bin/present.py
+
+DEFAULTCONFIG=$(grep -E 'DEFAULT_CONFIG_FILE\s*=\s*' "${PYFILE}" | cut -d'=' -f 2 | sed "s/'//g" | sed 's/^\s*//g' )
+DEFAULTCONFIG="${DEFAULTCONFIG/#\~/$HOME}"
+if [ ! -r "$DEFAULTCONFIG" ]; then
+  read -p "No default config file found at '${DEFAULTCONFIG}' - should I create one? " -n 1 -r
+  echo    # (optional) move to a new line
+  if [[ $REPLY =~ ^[Yy]$ ]]
+  then
+      cat >> "${DEFAULTCONFIG}" << EOF
+[DEFAULT]
+ResizeGeom = 1920x1080
+RecordAnimatedSlides = no
+RecordWebcam = no
+RecordRegion = no
+RecordRegionGeom = 1024x768+500+100
+RecordWriteWebVTT = yes
+FfmpegSourceAudio = -f alsa -ac 1 -ar 48000 -thread_queue_size 2048 -i sysdefault:CARD=CM900
+FfmpegSourceWebcam = -f v4l2 -ts abs -video_size 960x540 -thread_queue_size 1024 -i /dev/video2
+FfmpegOutputWebcam = libx265 -preset fast -crf 26
+FfmpegSourceScreen = -f x11grab -show_region 1 -video_size @WIDTH@x@HEIGHT@ -r 25 -thread_queue_size 1024 -i :0.0+@X@,@Y@
+FfmpegOutputScreen = libx264 -preset ultrafast -qp 0 -pix_fmt yuv444p
+SlideGeom = 1920x1080
+SlideLoadDpi = 300
+SlideLoadHeightFactor = 2.0
+RecordProduceEverything = yes
+RecordProduceCustomGeom = 1920x1080
+RecordProduceCompressAudio = yes
+RecordProduceScreencastOverlayFractionWebcam = 6
+RecordProduceScreencastOverlayPositionWebcamX = 1700
+RecordProduceScreencastOverlayPositionWebcamY = 500
+RecordTitleImageGeom = 960x540
+NotesShowTitle = no
+KeepAspectRatioWhileResizing = yes
+EOF
+  fi
+fi
+
+python3 "${PYFILE}" "$@"
