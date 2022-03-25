@@ -1,6 +1,5 @@
 # Presenting and Recording
-This is a collection of my scripts and tools I use to conduct and record my presentations. For more information, please refer to my website [here](
-**Edit 2022-03-25:** The tool is part of something bigger! [Read more in a separate post](https://mircoschoenfeld.de/a-presenter-view-for-linux-updated.html).), [here](http://mircoschoenfeld.de/emergency-remote-teaching.html), and [here](https://mircoschoenfeld.de/extract-notes-from-powerpoint-files.html) to learn more about the details.
+This is a collection of my scripts and tools I use to conduct and record my presentations. For more information, please refer to my website [here](https://mircoschoenfeld.de/a-presenter-view-for-linux-updated.html), [here](http://mircoschoenfeld.de/emergency-remote-teaching.html), and [here](https://mircoschoenfeld.de/extract-notes-from-powerpoint-files.html) to learn more about the details.
 
 ## Presenterview 
 
