@@ -1281,19 +1281,24 @@ class ScreencasterView(BaseRecorder):
       other_geom = self.new_geometry_entry.get()
       other_geom = other_geom.partition('x')
       result = subprocess.check_output(['xwininfo'], universal_newlines=True)
-      _id = None
+      _id = _x = _y = None
       for line in result.split('\n'):
         if line.startswith('xwininfo') and 'id:' in line:
           line = line.split('id:',1)
           _id = (line[1].split('"',1)[0]).strip()
-          break
+        else:
+          line = line.split(':',1)
+          if 'Absolute upper-left X' in line[0]:
+            _x=line[1].strip()
+          elif 'Absolute upper-left Y' in line[0]:
+            _y=line[1].strip()
       if _id:
         cmd = f"wmctrl -i -r {_id} -b remove,maximized_vert,maximized_horz"
         subprocess.Popen(cmd.split(' '), universal_newlines=True)
-        cmd = f"wmctrl -i -r {_id} -e 0,100,100,{other_geom[0]},{other_geom[2]}"
+        cmd = f"wmctrl -i -r {_id} -e 0,{_x},{_y},{other_geom[0]},{other_geom[2]}"
         subprocess.Popen(cmd.split(' '), universal_newlines=True)
       self.second_offset_entry.delete(0,tk.END)
-      self.second_offset_entry.insert(0,f"{other_geom[0]}x{other_geom[2]}+100+100")
+      self.second_offset_entry.insert(0,f"{other_geom[0]}x{other_geom[2]}+{_x}+{_y}")
       self.additional_source_another_region.set(True)
     
 
