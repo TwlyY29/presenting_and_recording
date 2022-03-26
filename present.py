@@ -102,38 +102,36 @@ class MediaProducer():
     rec_joiner.communicate()
   
   def ask_just_everything(self, rootwindow):
-    just_everything = self.config.getboolean("RecordProduceEverything", False)
+    just_everything = False
     
-    if not just_everything:
-      answer = mb.askyesnocancel(title="Produce Everything?",
+    if 'RecordProduceEverything' not in self.config:
+      return mb.askyesnocancel(title="Produce Everything?",
                                      message="Click Yes if you want to produce all possible files, and\nNo if you want to be asked individually.\nCancel produces nothing",
                                      default=mb.YES)
-      if answer is None:
-        return None
-      elif answer:
-        just_everything = True
-    return just_everything
+    else:
+      return self.config.getboolean("RecordProduceEverything")
   
   def produce_webcam(self, just_everything):
     if self.get_record_webcam:
-      if just_everything or mb.askyesno("Join video and audio?", "Do you want to join webcam video and audio?", default=mb.YES):
+      if just_everything or ( 'RecordProduceWebcamPlusAudio' not in self.config and mb.askyesno("Join video and audio?", "Do you want to join webcam video and audio?", default=mb.YES)) or self.config.getboolean('RecordProduceWebcamPlusAudio'):
         self.join_video_audio(self.rec_basename+'-webcam.mkv', self.rec_basename+'-audio.flac', self.rec_basename+'-webcam-audio.mkv', v_offset='-'+self.rec_webcam_offset)
         if not just_everything:
           mb.showinfo("Done","Merging audio and video is done")
+        return True
+    return False
   
   def produce_screencast(self, rootwindow):
     just_everything = self.ask_just_everything(rootwindow)
     if just_everything is None:
       return
     
-    if just_everything or mb.askyesno("Join video and audio?", "Do you want to join screencast and audio now?", default=mb.YES):
+    if just_everything or ( 'RecordProduceScreencastPlusAudio' not in self.config and mb.askyesno("Join video and audio?", "Do you want to join screencast and audio now?", default=mb.YES)) or self.config.getboolean('RecordProduceScreencastPlusAudio'):
       self.join_video_audio(self.rec_basename+'-screencast.mkv', self.rec_basename+'-audio.flac', self.rec_basename+'-screencast-audio.mkv')
       if not just_everything:
         mb.showinfo("Done","Merging audio and video is done")
     
-    self.produce_webcam(just_everything)
-    if self.get_record_webcam:    
-      if just_everything or mb.askyesno("Overlay videos?", "Do you want to overlay the screencast and webcam video now?", default=mb.YES):
+    if self.get_record_webcam and self.produce_webcam(just_everything):    
+      if just_everything or ( 'RecordProduceScreencastOverlay' not in self.config and mb.askyesno("Overlay videos?", "Do you want to overlay the screencast and webcam video now?", default=mb.YES)) or self.config.getboolean('RecordProduceScreencastOverlay'):
         self.overlay_video(self.rec_basename+'-screencast.mkv', self.rec_basename+'-webcam-audio.mkv', self.rec_basename+'-screencast_overlayed.mp4', v2_offset='-'+self.rec_webcam_offset)
         if not just_everything:
           mb.showinfo("Done","Video overlay is done")
@@ -147,7 +145,7 @@ class MediaProducer():
       return
     
     if not self.get_record_animated_slides:
-      if just_everything or mb.askyesno("Recording finished", "Do you want to produce the slideshow file right away?", default=mb.YES):
+      if just_everything or ( 'RecordProduceSlideshow' not in self.config and mb.askyesno("Recording finished", "Do you want to produce the slideshow file right away?", default=mb.YES)) or self.config.getboolean('RecordProduceSlideshow'):
         use_custom_geom = False
         p = None
         if 'RecordProduceCustomGeom' not in self.config:
@@ -195,29 +193,18 @@ class MediaProducer():
               rec_producer.communicate()
             
 
-      if just_everything or mb.askyesno("Join video and audio?", "Do you want to join slideshow and audio now?", default=mb.YES):
-        self.join_video_audio(self.rec_basename+'-screen.mp4', self.rec_basename+'-audio.flac', self.rec_basename+'-slides-audio.mkv', v_offset = self.rec_audio_offset)
-        if not just_everything:
-          mb.showinfo("Done","Merging audio and video is done")
-        
-      # appears as if recording x11 AND webcam requires other offsets...
-      if self.get_record_webcam:
-        if just_everything or mb.askyesno("Join video and audio?", "Do you want to join webcam video and audio?", default=mb.YES):
-          # ~ diff = self.rec_audio_start - self.rec_webcam_start
-          # ~ diff += timedelta(seconds=1)
-          # ~ diff = strfdelta(diff, "%H:%M:%S.%f")
-          # ~ self.join_video_audio(self.rec_basename+'-webcam.mkv', self.rec_basename+'-audio.flac', self.rec_basename+'-webcam-audio.mkv', v_start = diff, a_start = diff, a_offset='00:00.50')
-          self.join_video_audio(self.rec_basename+'-webcam.mkv', self.rec_basename+'-audio.flac', self.rec_basename+'-webcam-audio.mkv', a_offset='00:00.50')
+        if just_everything or ( 'RecordProduceSlidesPlusAudio' not in self.config and mb.askyesno("Join video and audio?", "Do you want to join slideshow and audio now?", default=mb.YES)) or self.config.getboolean('RecordProduceSlidesPlusAudio'):
+          self.join_video_audio(self.rec_basename+'-screen.mp4', self.rec_basename+'-audio.flac', self.rec_basename+'-slides-audio.mkv', v_offset = self.rec_audio_offset)
           if not just_everything:
             mb.showinfo("Done","Merging audio and video is done")
-        
-    elif just_everything or mb.askyesno("Join video and audio?", "Do you want to join slides-video and audio now?", default=mb.YES):
+      
+    elif just_everything or ( 'RecordProduceSlidesPlusAudio' not in self.config and mb.askyesno("Join video and audio?", "Do you want to join slides-video and audio now?", default=mb.YES)) or self.config.getboolean('RecordProduceSlidesPlusAudio'):
       ts = str(math.floor(self.rec_timing_markers[-1].total_seconds()))
       self.join_video_audio(self.rec_basename+'-screen.mkv', self.rec_basename+'-audio.flac', self.rec_basename+'-screen-audio.mkv', v_cut=ts)
       if not just_everything:
         mb.showinfo("Done","Merging audio and video is done")
       
-      self.produce_webcam(just_everything)
+    self.produce_webcam(just_everything)
     
     geom = self.config.get("RecordTitleImageGeom", "960x540")
     geom = geom.partition('x')
