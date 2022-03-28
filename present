@@ -102,7 +102,8 @@ RecordProduceScreencastOverlayPositionWebcamY = 500
 RecordProduceCompressAudio = yes
 
 ; if a slideshow is produced from static pdf presentation, this size is used to
-; configure the output size of the slideshow video
+; configure the output size of the slideshow video. make sure to set a SlideLoadDpi
+; and SlideLoadHeightFactor that 'supports' this resolution specified here
 RecordProduceCustomGeom = 1920x1080
 
 ; if a slideshow is produced, a <project_name>-title.png will be exported using
