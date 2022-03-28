@@ -11,34 +11,103 @@ if [ ! -r "$DEFAULTCONFIG" ]; then
   then
       cat >> "${DEFAULTCONFIG}" << EOF
 [DEFAULT]
+; these settings preconfigure some fields in the user interface.
+; for example the text field to resize the slide viewer
 ResizeGeom = 1920x1080
+; should animated slides be produced? animated slides are considered screencasts of
+; the slide viewer. use this if you plan to somehow interact with your slides, e.g.
+; paint on top of them or show something with the mouse pointer
 RecordAnimatedSlides = no
+; should the webcam be recorded?
 RecordWebcam = no
+; should an additional screencast be produced of a specific region of the screen?
 RecordRegion = no
+; if yes, what region should be recorded?
 RecordRegionGeom = 1024x768+500+100
+; should a WebVTT file be written during recording?
+; the WebVTT file contains metadata compatible with Panopto, for example.
+; use this if you plan to upload the resulting video to such a platform
 RecordWriteWebVTT = yes
-FfmpegSourceAudio = -f alsa -ac 1 -ar 48000 -thread_queue_size 2048 -i sysdefault:CARD=CM900
-FfmpegSourceWebcam = -f v4l2 -ts abs -video_size 960x540 -thread_queue_size 1024 -i /dev/video2
+; all the options above can be changed in the user interface while the presenter is running
+; having these settings in here should just help you avoid repetetive clicks
+
+; these options configure the recording and production using ffmpeg. adjust these to your needs. 
+; most importantly, choose correct recording devices here
+FfmpegSourceAudio = -f alsa -thread_queue_size 2048 -i hw:0
+FfmpegSourceWebcam = -f v4l2 -ts abs -video_size 960x540 -thread_queue_size 1024 -i /dev/video0
 FfmpegOutputWebcam = libx265 -preset fast -crf 26
+; if you adjust these settings make sure to place @WIDTH@, @HEIGHT@, @X@, and @Y@ somwhere
+; in this option as these are replaced later when starting the screencast recording
 FfmpegSourceScreen = -f x11grab -show_region 1 -video_size @WIDTH@x@HEIGHT@ -r 25 -thread_queue_size 1024 -i :0.0+@X@,@Y@
 FfmpegOutputScreen = libx264 -preset ultrafast -qp 0 -pix_fmt yuv444p
+
+; if a pdf is presented, this is used to configure the size of the slide viewer. 
+; if omitted, the slide viewer will take up as much screen space as your monitor's
+; resolution allows. this doesn't affect the size of the resulting slide show video.
+; to configure the video's size, use RecordProduceCustomGeom
 SlideGeom = 1920x1080
+; the presented pdf file is converted to a png internally. this configures the resolution
+; and the size of the internal representation of pdf pages. note that this affects the 
+; production of the slide show video! choose a dpi and height factor here suche that the 
+; RecordProduceCustomGeom will look good.
 SlideLoadDpi = 300
+; the height factor determines the size of the png representation of your pdf. it is 
+; max_screen_heigth * SlideLoadHeightFactor
+; the width of the png will be chosen automatically
 SlideLoadHeightFactor = 2.0
+
+; should the slide titles show up in the notes section?
+NotesShowTitle = no
+
+; when resizing the window, should the aspect ratio of the current dimensions
+; be kept?
+KeepAspectRatioWhileResizing = yes
+
+; set this to yes to avoid being ask for every single file
 RecordProduceEverything = no
-RecordProduceWebcamPlusAudio = yes
-RecordProduceScreencastPlusAudio = yes
-RecordProduceSlideshow = yes
-RecordProduceSlidesPlusAudio = yes
-RecordProduceScreencastOverlay = yes
-RecordProduceCustomGeom = 1920x1080
-RecordProduceCompressAudio = yes
+
+; fine-tune what is being produced after recording:
+; merged webcam and audio
+;RecordProduceWebcamPlusAudio = yes
+
+; merged screencast and audio
+;RecordProduceScreencastPlusAudio = yes
+
+; slideshow from PDF presentation
+;RecordProduceSlideshow = yes
+
+; merged slideshow and audio
+;RecordProduceSlidesPlusAudio = yes
+
+; screencast overlayed with webcam video. see below for more options
+; regarding positioning webcam video above screncast
+;RecordProduceScreencastOverlay = yes
+
+; the following option produces an overlayed screencast which is prepended
+; by a png file for a given amount of time (see next option). 
+; the png file has to have the filename >project_or_pdf_name>-title.png
+;RecordProduceScreencastOverlayWithTitle = no
+;RecordProduceScreencastOverlayIntroDuration = 3
+
+; the following three options configure how screencast and webcam videos are
+; overlayed. the first is the size of the webcam video. it is
+; webcam_size = screencast_size * ( 1/RecordProduceScreencastOverlayFractionWebcam)
 RecordProduceScreencastOverlayFractionWebcam = 6
+; where in the screencast video should the top left corner of the webcam video
+; be positioned?
 RecordProduceScreencastOverlayPositionWebcamX = 1700
 RecordProduceScreencastOverlayPositionWebcamY = 500
+
+; should the audio be compressed with aac codec during production?
+RecordProduceCompressAudio = yes
+
+; if a slideshow is produced from static pdf presentation, this size is used to
+; configure the output size of the slideshow video
+RecordProduceCustomGeom = 1920x1080
+
+; if a slideshow is produced, a <project_name>-title.png will be exported using
+; this size.
 RecordTitleImageGeom = 960x540
-NotesShowTitle = no
-KeepAspectRatioWhileResizing = yes
 EOF
   fi
 fi

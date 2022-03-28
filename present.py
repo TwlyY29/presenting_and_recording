@@ -101,6 +101,31 @@ class MediaProducer():
     rec_joiner = subprocess.Popen(cmd, cwd=self.rec_basepath, stdout=subprocess.PIPE)
     rec_joiner.communicate()
   
+  def parse_framerate(self, config_string):
+    i = config_string.index('-r ')+3
+    j = config_string.index(' ',i)
+    return config_string[i:j]
+    
+  def overlay_video_with_png_intro(self, v1, v2, a, png, o, v2_offset='00:00.00'):
+    cmd = 'ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 '+v2
+    result = subprocess.run(cmd.split(' '), stdout=subprocess.PIPE)
+    result = result.stdout.decode('utf-8').strip().split(',')
+    
+    intro_duration = self.config.get("RecordProduceScreencastOverlayIntroDuration", "3")
+    framerate = self.parse_framerate(self.config.get("FfmpegSourceScreen"))
+    frac = self.config.get("RecordProduceScreencastOverlayFractionWebcam", "6")
+    xpos = self.config.get("RecordProduceScreencastOverlayPositionWebcamX", "10")
+    ypos = self.config.get("RecordProduceScreencastOverlayPositionWebcamY", "10")
+    
+    filter_complex = f"[2:v][1:v]scale2ref=({result[0]}/{result[1]})*ih/{frac}/sar:ih/{frac}[wm][base];[base][wm]overlay={xpos}:{ypos}[main];[0][4][main][3]concat=n=2:v=1:a=1[v][a]"
+    cmd = ['ffmpeg', '-y', '-framerate', framerate,'-loop','1','-t',intro_duration,'-i', png, '-i', v1, '-itsoffset',v2_offset, '-i', v2, '-i',a,'-f','lavfi','-t','0.1','-i','anullsrc', '-filter_complex', filter_complex, '-map', '[v]','-map', '[a]', o]
+    if self.rec_stdout:
+      print(' '.join(cmd), file=self.rec_stdout)
+    else:
+      print(' '.join(cmd))
+    rec_joiner = subprocess.Popen(cmd, cwd=self.rec_basepath, stdout=subprocess.PIPE)
+    rec_joiner.communicate()
+  
   def ask_just_everything(self, rootwindow):
     just_everything = False
     
@@ -130,11 +155,18 @@ class MediaProducer():
       if not just_everything:
         mb.showinfo("Done","Merging audio and video is done")
     
-    if self.get_record_webcam and self.produce_webcam(just_everything):    
+    self.produce_webcam(just_everything)
+    if self.get_record_webcam:    
       if just_everything or ( 'RecordProduceScreencastOverlay' not in self.config and mb.askyesno("Overlay videos?", "Do you want to overlay the screencast and webcam video now?", default=mb.YES)) or self.config.getboolean('RecordProduceScreencastOverlay'):
         self.overlay_video(self.rec_basename+'-screencast.mkv', self.rec_basename+'-webcam-audio.mkv', self.rec_basename+'-screencast_overlayed.mp4', v2_offset='-'+self.rec_webcam_offset)
         if not just_everything:
           mb.showinfo("Done","Video overlay is done")
+      
+      if Path(self.rec_basename+'-title.png').exists() and (just_everything or ( 'RecordProduceScreencastOverlayWithTitle' not in self.config and mb.askyesno("Found a title-png!", "Do you want to produce overlayed screencast with intro now?", default=mb.YES)) or self.config.getboolean('RecordProduceScreencastOverlayWithTitle')):
+        self.overlay_video_with_png_intro(self.rec_basename+'-screencast.mkv', self.rec_basename+'-webcam.mkv', self.rec_basename+'-audio.flac', self.rec_basename+'-title.png', self.rec_basename+'-screencast_overlayed_title.mp4', v2_offset='-'+self.rec_webcam_offset)
+        
+        # ~ if not just_everything:
+          # ~ mb.showinfo("Done","Video overlay with intro is done")
     
     if just_everything:
       mb.showinfo("Done", "All files produced")  
@@ -1295,7 +1327,7 @@ def main(project_name, startslide=1):
     MyApp = PresenterView(root, project_name, startslide)
   else:
     MyApp = ScreencasterView(root, project_name)
-  tk.mainloop()    
+  tk.mainloop()
 
 
 if __name__=='__main__':
