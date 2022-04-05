@@ -84,16 +84,17 @@ class MediaProducer():
       # ~ rec_joiner.communicate()
   
   def overlay_video(self, v1, v2, o, v2_offset='00:00.00'):
-    cmd = 'ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 '+v2
-    result = subprocess.run(cmd.split(' '), stdout=subprocess.PIPE)
-    result = result.stdout.decode('utf-8').strip().split(',')
+    w,h = self.get_width_and_height_from_video(v2)
+    
+    framerate = self.get_framerate_from_file(v2)
+    framerate = str(framerate) if framerate else '25'
     
     frac = self.config.get("RecordProduceScreencastOverlayFractionWebcam", "6")
     xpos = self.config.get("RecordProduceScreencastOverlayPositionWebcamX", "10")
     ypos = self.config.get("RecordProduceScreencastOverlayPositionWebcamY", "10")
     
-    filter_complex = f"[1:v][0:v]scale2ref=({result[0]}/{result[1]})*ih/{frac}/sar:ih/{frac}[wm][base];[base][wm]overlay={xpos}:{ypos}"
-    cmd = ['ffmpeg', '-y', '-i', v1, '-itsoffset',v2_offset, '-i', v2, '-filter_complex', filter_complex, '-c:a', 'copy', o]
+    filter_complex = f"[1:v][0:v]scale2ref=({w}/{h})*ih/{frac}/sar:ih/{frac}[wm][base];[base][wm]overlay={xpos}:{ypos}"
+    cmd = ['ffmpeg', '-y', '-i', v1, '-itsoffset',v2_offset, '-i', v2, '-filter_complex', filter_complex, '-r', framerate, '-c:a', 'copy', o]
     if self.rec_stdout:
       print(' '.join(cmd), file=self.rec_stdout)
     else:
@@ -101,24 +102,39 @@ class MediaProducer():
     rec_joiner = subprocess.Popen(cmd, cwd=self.rec_basepath, stdout=subprocess.PIPE)
     rec_joiner.communicate()
   
-  def parse_framerate(self, config_string):
-    i = config_string.index('-r ')+3
-    j = config_string.index(' ',i)
-    return config_string[i:j]
-    
-  def overlay_video_with_png_intro(self, v1, v2, a, png, o, v2_offset='00:00.00'):
-    cmd = 'ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 '+v2
+  def get_framerate_from_file(self, filename):
+    cmd = 'ffprobe -v error -select_streams v -of default=noprint_wrappers=1:nokey=1 -show_entries stream=r_frame_rate '+filename
+    result = subprocess.run(cmd.split(' '), stdout=subprocess.PIPE)
+    result = result.stdout.decode('utf-8').strip()
+    if result:
+      if '/' in result:
+        for char in result:
+          if char not in '0123456789+-*(). /':
+            return None
+        fps = eval(result, {"__builtins__":None}, {})
+        return round(float(fps))
+    else:
+      return None
+      
+  def get_width_and_height_from_video(self, filename):
+    cmd = 'ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 '+filename
     result = subprocess.run(cmd.split(' '), stdout=subprocess.PIPE)
     result = result.stdout.decode('utf-8').strip().split(',')
+    return (result[0], result[1])
     
+  def overlay_video_with_png_intro(self, v1, v2, a, png, o, v2_offset='00:00.00'):
+    w,h = self.get_width_and_height_from_video(v2)
+    
+    framerate = self.get_framerate_from_file(v2)
+    framerate = str(framerate) if framerate else '25'
+
     intro_duration = self.config.get("RecordProduceScreencastOverlayIntroDuration", "3")
-    framerate = self.parse_framerate(self.config.get("FfmpegSourceScreen"))
     frac = self.config.get("RecordProduceScreencastOverlayFractionWebcam", "6")
     xpos = self.config.get("RecordProduceScreencastOverlayPositionWebcamX", "10")
     ypos = self.config.get("RecordProduceScreencastOverlayPositionWebcamY", "10")
     
-    filter_complex = f"[2:v][1:v]scale2ref=({result[0]}/{result[1]})*ih/{frac}/sar:ih/{frac}[wm][base];[base][wm]overlay={xpos}:{ypos}[main];[0][4][main][3]concat=n=2:v=1:a=1[v][a]"
-    cmd = ['ffmpeg', '-y', '-framerate', framerate,'-loop','1','-t',intro_duration,'-i', png, '-i', v1, '-itsoffset',v2_offset, '-i', v2, '-i',a,'-f','lavfi','-t','0.1','-i','anullsrc', '-filter_complex', filter_complex, '-map', '[v]','-map', '[a]', o]
+    filter_complex = f"[2:v][1:v]scale2ref=({w}/{h})*ih/{frac}/sar:ih/{frac}[wm][base];[base][wm]overlay={xpos}:{ypos}[main];[0][4][main][3]concat=n=2:v=1:a=1[v][a]"
+    cmd = ['ffmpeg', '-y', '-framerate', framerate,'-loop','1','-t',intro_duration,'-i', png, '-i', v1, '-itsoffset',v2_offset, '-i', v2, '-i',a,'-f','lavfi','-t','0.1','-i','anullsrc', '-filter_complex', filter_complex, '-r', framerate, '-map', '[v]','-map', '[a]', o]
     if self.rec_stdout:
       print(' '.join(cmd), file=self.rec_stdout)
     else:
@@ -139,7 +155,7 @@ class MediaProducer():
   def produce_webcam(self, just_everything):
     if self.get_record_webcam:
       if just_everything or ( 'RecordProduceWebcamPlusAudio' not in self.config and mb.askyesno("Join video and audio?", "Do you want to join webcam video and audio?", default=mb.YES)) or self.config.getboolean('RecordProduceWebcamPlusAudio'):
-        self.join_video_audio(self.rec_basename+'-webcam.mkv', self.rec_basename+'-audio.flac', self.rec_basename+'-webcam-audio.mkv', v_offset='-'+self.rec_webcam_offset)
+        self.join_video_audio(self.rec_basename+'-webcam.mkv', self.rec_basename+'-audio.flac', self.rec_basename+'-webcam-audio.mkv', v_offset='-'+self.rec_webcam_offset, a_offset='-'+self.rec_audio_offset)
         if not just_everything:
           mb.showinfo("Done","Merging audio and video is done")
         return True
@@ -723,7 +739,7 @@ class BaseRecorder(tk.Frame):
         mb.showinfo("Whoops!", "You need to specify 'FfmpegSourceWebcam' and 'FfmpegOutputWebcam' in your config file")
         return False
       cmd += ' '+self.config.get("FfmpegSourceWebcam")
-      out_map += ' '+f"-map {i_n}:v:0 -c:v "+ self.config.get("FfmpegOutputWebcam") + ' ' + webcamFile
+      out_map += ' '+f"-map {i_n}:v:0 "+ self.config.get("FfmpegOutputWebcam") + ' ' + webcamFile
       i_n += 1
     
     if self.get_record_second_region() and self.get_valid_second_region():
@@ -737,7 +753,7 @@ class BaseRecorder(tk.Frame):
       height = height-1 if height % 2 != 0 else height
       source = self.config.get("FfmpegSourceScreen").replace('@WIDTH@', str(width)).replace('@HEIGHT@',str(height)).replace('@X@', parts[1]).replace('@Y@', parts[2])
       cmd += ' '+source
-      out_map += ' '+f"-map {i_n}:v:0 -c:v "+ self.config.get("FfmpegOutputScreen") + ' ' + screencastFile
+      out_map += ' '+f"-map {i_n}:v:0 "+ self.config.get("FfmpegOutputScreen") + ' ' + screencastFile
       i_n += 1
       
     if self.get_record_animated_slides():
@@ -750,7 +766,7 @@ class BaseRecorder(tk.Frame):
       source = self.config.get("FfmpegSourceScreen").replace('@WIDTH@', str(geom[0])).replace('@HEIGHT@',str(geom[1])).replace('@X@', str(geom[2])).replace('@Y@', str(geom[3]))
       
       cmd += ' '+source
-      out_map += ' '+f"-map {i_n}:v:0 -c:v "+ self.config.get("FfmpegOutputScreen") + ' ' + screenFile
+      out_map += ' '+f"-map {i_n}:v:0 "+ self.config.get("FfmpegOutputScreen") + ' ' + screenFile
       i_n += 1
       
     cmd += ' '+self.config.get("FfmpegSourceAudio")
@@ -768,13 +784,13 @@ class BaseRecorder(tk.Frame):
     self.rec_recorder = subprocess.Popen(cmd.split(' '), stdout=self.rec_stdout, stderr=self.rec_stdout, universal_newlines=True)
     with open(recordLogFile, 'r') as log:
       go_on = True
-      self.rec_webcam_start = self.rec_screencast_start = datetime.now()
+      self.rec_audio_start = self.rec_webcam_start = self.rec_screencast_start = datetime.now()
       
       audio_match = re.compile(r'^Output [^\']*\''+audioFile+'\'', re.M)
       webcam_match = re.compile(r'^Output [^\']*\''+webcamFile+'\'', re.M)
       screencast_match = re.compile(r'^Output [^\']*\''+screencastFile+'\'', re.M)
       start_match = re.compile(r'^(frame|size)= *\d+', re.M)
-      error_match = re.compile(r'^.*(Device or resource busy|Inappropriate ioctl for device|Input/output error)$', re.M)
+      error_match = re.compile(r'^.*(Device or resource busy|Inappropriate ioctl for device|Input/output error|not found)$', re.M)
       while go_on:
         for line in log:
           # ~ print(line.strip())

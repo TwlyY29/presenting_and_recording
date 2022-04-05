@@ -34,12 +34,12 @@ RecordWriteWebVTT = yes
 ; these options configure the recording and production using ffmpeg. adjust these to your needs. 
 ; most importantly, choose correct recording devices here
 FfmpegSourceAudio = -f alsa -thread_queue_size 2048 -i hw:0
-FfmpegSourceWebcam = -f v4l2 -ts abs -video_size 960x540 -thread_queue_size 1024 -i /dev/video0
-FfmpegOutputWebcam = libx265 -preset fast -crf 26
+FfmpegSourceWebcam = -f v4l2 -ts mono2abs -video_size 960x540 -input_format mjpeg -thread_queue_size 1024 -i /dev/video0
+FfmpegOutputWebcam = -c:v libx264 -preset faster -pix_fmt yuv420p
 ; if you adjust these settings make sure to place @WIDTH@, @HEIGHT@, @X@, and @Y@ somwhere
 ; in this option as these are replaced later when starting the screencast recording
-FfmpegSourceScreen = -f x11grab -show_region 1 -video_size @WIDTH@x@HEIGHT@ -r 25 -thread_queue_size 1024 -i :0.0+@X@,@Y@
-FfmpegOutputScreen = libx264 -preset ultrafast -qp 0 -pix_fmt yuv444p
+FfmpegSourceScreen = -f x11grab -show_region 1 -video_size @WIDTH@x@HEIGHT@ -r 10 -thread_queue_size 1024 -i :0.0+@X@,@Y@
+FfmpegOutputScreen = -c:v libx264 -preset ultrafast -qp 0 -pix_fmt yuv444p
 
 ; if a pdf is presented, this is used to configure the size of the slide viewer. 
 ; if omitted, the slide viewer will take up as much screen space as your monitor's
