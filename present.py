@@ -122,19 +122,26 @@ class MediaProducer():
     result = result.stdout.decode('utf-8').strip().split(',')
     return (result[0], result[1])
     
-  def overlay_video_with_png_intro(self, v1, v2, a, png, o, v2_offset='00:00.00'):
+  def overlay_video_with_intro_maybe_outro(self, v1, v2, a, png, o, v2_offset='00:00.00'):
     w,h = self.get_width_and_height_from_video(v2)
     
     framerate = self.get_framerate_from_file(v2)
     framerate = str(framerate) if framerate else '25'
 
     intro_duration = self.config.get("RecordProduceScreencastOverlayIntroDuration", "3")
+    outro_duration = self.config.get("RecordProduceScreencastOverlayOutroDuration", "3")
     frac = self.config.get("RecordProduceScreencastOverlayFractionWebcam", "6")
     xpos = self.config.get("RecordProduceScreencastOverlayPositionWebcamX", "10")
     ypos = self.config.get("RecordProduceScreencastOverlayPositionWebcamY", "10")
     
-    filter_complex = f"[2:v][1:v]scale2ref=({w}/{h})*ih/{frac}/sar:ih/{frac}[wm][base];[base][wm]overlay={xpos}:{ypos}[main];[0][4][main][3]concat=n=2:v=1:a=1[v][a]"
-    cmd = ['ffmpeg', '-y', '-framerate', framerate,'-loop','1','-t',intro_duration,'-i', png, '-i', v1, '-itsoffset',v2_offset, '-i', v2, '-i',a,'-f','lavfi','-t','0.1','-i','anullsrc', '-filter_complex', filter_complex, '-r', framerate, '-map', '[v]','-map', '[a]', o]
+    cmd = ['ffmpeg', '-y', '-framerate', framerate,'-loop','1','-t',intro_duration,'-i', png, '-i', v1, '-itsoffset',v2_offset, '-i', v2, '-i',a,'-f','lavfi','-t','0.1','-i','anullsrc']
+    if 'RecordProduceScreencastOverlayOutroImg' not in self.config:
+      filter_complex = f"[2:v][1:v]scale2ref=({w}/{h})*ih/{frac}/sar:ih/{frac}[wm][base];[base][wm]overlay={xpos}:{ypos}[main];[0][4][main][3]concat=n=2:v=1:a=1[v][a]"
+    else:
+      outro = self.config.get("RecordProduceScreencastOverlayOutroImg")
+      filter_complex = f"[2:v][1:v]scale2ref=({w}/{h})*ih/{frac}/sar:ih/{frac}[wm][base];[base][wm]overlay={xpos}:{ypos}[main];[0][4][main][3][5][4]concat=n=3:v=1:a=1[v][a]"
+      cmd.extend(['-loop','1','-t',outro_duration,'-i', outro])
+    cmd.extend(['-filter_complex', filter_complex, '-r', framerate, '-map', '[v]','-map', '[a]', o])
     if self.rec_stdout:
       print(' '.join(cmd), file=self.rec_stdout)
     else:
@@ -179,13 +186,12 @@ class MediaProducer():
           mb.showinfo("Done","Video overlay is done")
       
       if Path(self.rec_basename+'-title.png').exists() and (just_everything or ( 'RecordProduceScreencastOverlayWithTitle' not in self.config and mb.askyesno("Found a title-png!", "Do you want to produce overlayed screencast with intro now?", default=mb.YES)) or self.config.getboolean('RecordProduceScreencastOverlayWithTitle')):
-        self.overlay_video_with_png_intro(self.rec_basename+'-screencast.mkv', self.rec_basename+'-webcam.mkv', self.rec_basename+'-audio.flac', self.rec_basename+'-title.png', self.rec_basename+'-screencast_overlayed_title.mp4', v2_offset='-'+self.rec_webcam_offset)
+        self.overlay_video_with_intro_maybe_outro(self.rec_basename+'-screencast.mkv', self.rec_basename+'-webcam.mkv', self.rec_basename+'-audio.flac', self.rec_basename+'-title.png', self.rec_basename+'-screencast_overlayed_title.mp4', v2_offset='-'+self.rec_webcam_offset)
         
         # ~ if not just_everything:
           # ~ mb.showinfo("Done","Video overlay with intro is done")
     
-    if just_everything:
-      mb.showinfo("Done", "All files produced")  
+    mb.showinfo("Done", "All files produced")  
     
   def produce_recording(self, rootwindow):
     just_everything = self.ask_just_everything(rootwindow)
@@ -259,8 +265,7 @@ class MediaProducer():
     img = self.pages[0].resize((int(geom[0]), int(geom[2])), Image.ANTIALIAS)
     img.save(self.rec_basename+'-title.png', 'png', compress_level=1)
     
-    if just_everything:
-      mb.showinfo("Done", "All files produced")    
+    mb.showinfo("Done", "All files produced")    
 
 class DeltaTemplate(Template):
     delimiter = "%"
@@ -616,7 +621,6 @@ class BaseRecorder(tk.Frame):
     self.set_standard_values_to_gui()
     self.reload_notes()
     self.update_counter_label()
-    
   
   def get_keep_aspect_ratio(self):
     if self.is_initialized:

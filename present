@@ -89,6 +89,10 @@ RecordProduceEverything = no
 ;RecordProduceScreencastOverlayWithTitle = no
 ;RecordProduceScreencastOverlayIntroDuration = 3
 
+; the following option appends an outro to an overlayed screencast
+;RecordProduceScreencastOverlayOutroDuration = 3
+;RecordProduceScreencastOverlayOutroImg = /path/to/outro.png
+
 ; the following three options configure how screencast and webcam videos are
 ; overlayed. the first is the size of the webcam video. it is
 ; webcam_size = screencast_size * ( 1/RecordProduceScreencastOverlayFractionWebcam)

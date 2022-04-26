@@ -29,6 +29,7 @@ And you should have these PIP packages:
 * pdf2image
 * pillow
 * markdown
+* plac
 
 
 ![a screenshot of a screencast](doc/screencast.png)
