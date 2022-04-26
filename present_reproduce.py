@@ -6,9 +6,11 @@ from tempfile import TemporaryDirectory,NamedTemporaryFile
 from pathlib import Path
 import configparser
 
-from present import MediaProducer
+from present import MediaProducer, DEFAULT_CONFIG_FILE
 import tkinter as tk
 from tkinter import simpledialog
+
+import sys
 
 fmt = '%H:%M:%S.%f'
 
@@ -33,11 +35,16 @@ class bullshit():
     
     tmp = tk.Tk()
     
-    self.config = {}
-    if Path(self.rec_config_file).exists():
-      config = configparser.ConfigParser()
-      config.read(self.rec_config_file)
-      self.config = config['DEFAULT']
+    config = configparser.ConfigParser()
+    default_file = Path(DEFAULT_CONFIG_FILE).expanduser()
+    if default_file.exists():
+      config.read(default_file.resolve())
+    specific_file = Path(self.rec_config_file).expanduser()
+    if Path(specific_file).exists():
+      print(f"read presentation-specific config from '{specific_file}'")
+      config.read(specific_file.resolve())
+
+    self.config = config['DEFAULT']
     
     if is_screencast_or_presentation == 'presentation':
       self.pages = convert_from_path(pdffile,size=(None, max_h),dpi=self.config.getint("SlideLoadDpi", 300))
