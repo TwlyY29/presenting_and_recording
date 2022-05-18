@@ -58,6 +58,35 @@ class MediaProducer():
     self.rec_stdout = rec_stdout
     self.rec_audio_compress = self.config.getboolean("RecordProduceCompressAudio", True)
     
+    if 'RecordProduceAdditionalWebcamOffset' in self.config:
+      add_webcam_offset = self.config.get('RecordProduceAdditionalWebcamOffset')
+      self.rec_webcam_offset = self.sum_timecodes(self.rec_webcam_offset, add_webcam_offset)
+      
+  def sum_timecodes(self,t1, t2):
+    t1 = t1.split(':')
+    t2 = t2.split(':')
+    
+    t1_ms = int(t1[2].split('.')[1])
+    t2_ms = int(t2[2].split('.')[1])
+    t1_s = int(t1[2].split('.')[0])
+    t2_s = int(t2[2].split('.')[0])
+    t1_m = int(t1[1])
+    t2_m = int(t2[1])
+    t1_h = int(t1[0])
+    t2_h = int(t2[0])
+    
+    ms = t1_ms + t2_ms
+    sec = 0
+    if ms > 1000:
+      sec += 1
+      ms -= 1000
+    
+    outsec = (sec + t1_s + t2_s) % 60
+    mins = t1_m + t2_m + ((sec + t1_s + t2_s) // 60)
+    outmins = (mins % 60)
+    hrs = t1_h + t2_h + (mins // 60)
+    
+    return f"{hrs:02}:{outmins:02}:{outsec:02}.{ms:03}"
   
   def join_video_audio(self, v, a, o, a_offset='00:00.00', v_offset='00:00.00', a_cut=False, v_cut=False, a_start='00:00.00', v_start='00:00.00'):
     cmd = ['ffmpeg','-y','-itsoffset',v_offset,'-ss',v_start]
@@ -126,7 +155,7 @@ class MediaProducer():
     w,h = self.get_width_and_height_from_video(v2)
     
     framerate = self.get_framerate_from_file(v2)
-    framerate = str(framerate) if framerate else '25'
+    framerate = str(framerate) if framerate else '30'
 
     intro_duration = self.config.get("RecordProduceScreencastOverlayIntroDuration", "3")
     outro_duration = self.config.get("RecordProduceScreencastOverlayOutroDuration", "3")
@@ -149,11 +178,60 @@ class MediaProducer():
     rec_joiner = subprocess.Popen(cmd, cwd=self.rec_basepath, stdout=subprocess.PIPE)
     rec_joiner.communicate()
   
-  def ask_just_everything(self, rootwindow):
+  def askyesno(self, title, message, default=None):
+    if self.rootwindow is not None:
+      if default is not None:
+        return mb.askyesno(title, message, default=default)
+      else:
+        return mb.askyesno(title, message)
+    else:
+      print(title)
+      if default is not None:
+        print("default: "+default)
+      inp = input(message).lower()
+      if inp == 'y' or inp == mb.YES:
+        return True
+      elif inp == 'n' or inp == mb.NO:
+        return False
+      elif inp == '':
+        if default is not None:
+          return default == mb.YES
+        raise Exception("need default value")
+  
+  def askyesnocancel(self, title, message, default=None):
+    if self.rootwindow is not None:
+      if default is not None:
+        return mb.askyesnocancel(title, message, default=default)
+      else:
+        return mb.askyesnocancel(title, message)
+    else:
+      print(title)
+      if default is not None:
+        print("default: "+default)
+      inp = input(message).lower()
+      if inp == 'y' or inp == mb.YES:
+        return True
+      elif inp == 'n' or inp == mb.NO:
+        return False
+      elif inp == 'c' or inp == mb.CANCEL:
+        return None
+      elif inp == '':
+        if default is not None:
+          return default == mb.YES
+        raise Exception("need default value")
+  
+  def showinfo(self, title, message):
+    if self.rootwindow is not None:
+      mb.showinfo(title,message)
+    else:
+      print(title)
+      print(message)
+  
+  def ask_just_everything(self):
     just_everything = False
     
     if 'RecordProduceEverything' not in self.config:
-      return mb.askyesnocancel(title="Produce Everything?",
+      return self.askyesnocancel(title="Produce Everything?",
                                      message="Click Yes if you want to produce all possible files, and\nNo if you want to be asked individually.\nCancel produces nothing",
                                      default=mb.YES)
     else:
@@ -161,51 +239,54 @@ class MediaProducer():
   
   def produce_webcam(self, just_everything):
     if self.get_record_webcam:
-      if just_everything or ( 'RecordProduceWebcamPlusAudio' not in self.config and mb.askyesno("Join video and audio?", "Do you want to join webcam video and audio?", default=mb.YES)) or self.config.getboolean('RecordProduceWebcamPlusAudio'):
+      if just_everything or ( 'RecordProduceWebcamPlusAudio' not in self.config and self.askyesno("Join video and audio?", "Do you want to join webcam video and audio?", default=mb.YES)) or self.config.getboolean('RecordProduceWebcamPlusAudio'):
         self.join_video_audio(self.rec_basename+'-webcam.mkv', self.rec_basename+'-audio.flac', self.rec_basename+'-webcam-audio.mkv', v_offset='-'+self.rec_webcam_offset, a_offset='-'+self.rec_audio_offset)
         if not just_everything:
-          mb.showinfo("Done","Merging audio and video is done")
+          self.showinfo("Done","Merging audio and video is done")
         return True
     return False
   
   def produce_screencast(self, rootwindow):
-    just_everything = self.ask_just_everything(rootwindow)
+    self.rootwindow = rootwindow
+    just_everything = self.ask_just_everything()
     if just_everything is None:
       return
     
-    if just_everything or ( 'RecordProduceScreencastPlusAudio' not in self.config and mb.askyesno("Join video and audio?", "Do you want to join screencast and audio now?", default=mb.YES)) or self.config.getboolean('RecordProduceScreencastPlusAudio'):
+    if just_everything or ( 'RecordProduceScreencastPlusAudio' not in self.config and self.askyesno("Join video and audio?", "Do you want to join screencast and audio now?", default=mb.YES)) or self.config.getboolean('RecordProduceScreencastPlusAudio'):
       self.join_video_audio(self.rec_basename+'-screencast.mkv', self.rec_basename+'-audio.flac', self.rec_basename+'-screencast-audio.mkv')
       if not just_everything:
-        mb.showinfo("Done","Merging audio and video is done")
+        self.showinfo("Done","Merging audio and video is done")
     
     self.produce_webcam(just_everything)
     if self.get_record_webcam:    
-      if just_everything or ( 'RecordProduceScreencastOverlay' not in self.config and mb.askyesno("Overlay videos?", "Do you want to overlay the screencast and webcam video now?", default=mb.YES)) or self.config.getboolean('RecordProduceScreencastOverlay'):
+      if just_everything or ( 'RecordProduceScreencastOverlay' not in self.config and self.askyesno("Overlay videos?", "Do you want to overlay the screencast and webcam video now?", default=mb.YES)) or self.config.getboolean('RecordProduceScreencastOverlay'):
         self.overlay_video(self.rec_basename+'-screencast.mkv', self.rec_basename+'-webcam-audio.mkv', self.rec_basename+'-screencast_overlayed.mp4', v2_offset='-'+self.rec_webcam_offset)
         if not just_everything:
-          mb.showinfo("Done","Video overlay is done")
+          self.showinfo("Done","Video overlay is done")
       
-      if Path(self.rec_basename+'-title.png').exists() and (just_everything or ( 'RecordProduceScreencastOverlayWithTitle' not in self.config and mb.askyesno("Found a title-png!", "Do you want to produce overlayed screencast with intro now?", default=mb.YES)) or self.config.getboolean('RecordProduceScreencastOverlayWithTitle')):
+      if Path(self.rec_basename+'-title.png').exists() and (just_everything or ( 'RecordProduceScreencastOverlayWithTitle' not in self.config and self.askyesno("Found a title-png!", "Do you want to produce overlayed screencast with intro now?", default=mb.YES)) or self.config.getboolean('RecordProduceScreencastOverlayWithTitle')):
         self.overlay_video_with_intro_maybe_outro(self.rec_basename+'-screencast.mkv', self.rec_basename+'-webcam.mkv', self.rec_basename+'-audio.flac', self.rec_basename+'-title.png', self.rec_basename+'-screencast_overlayed_title.mp4', v2_offset='-'+self.rec_webcam_offset)
-        
         # ~ if not just_everything:
           # ~ mb.showinfo("Done","Video overlay with intro is done")
     
-    mb.showinfo("Done", "All files produced")  
+    self.showinfo("Done", "All files produced")  
     
   def produce_recording(self, rootwindow):
-    just_everything = self.ask_just_everything(rootwindow)
+    self.rootwindow = rootwindow
+    just_everything = self.ask_just_everything()
     if just_everything is None:
       return
     
     if not self.get_record_animated_slides:
-      if just_everything or ( 'RecordProduceSlideshow' not in self.config and mb.askyesno("Recording finished", "Do you want to produce the slideshow file right away?", default=mb.YES)) or self.config.getboolean('RecordProduceSlideshow'):
+      if just_everything or ( 'RecordProduceSlideshow' not in self.config and self.askyesno("Recording finished", "Do you want to produce the slideshow file right away?", default=mb.YES)) or self.config.getboolean('RecordProduceSlideshow'):
         use_custom_geom = False
         p = None
         if 'RecordProduceCustomGeom' not in self.config:
-        
-          self.askGeom = inputGeomPopup(rootwindow)
-          rootwindow.wait_window(self.askGeom.top)
+          if rootwindow is not None:
+            self.askGeom = inputGeomPopup(rootwindow)
+            rootwindow.wait_window(self.askGeom.top)
+          else:
+            raise Exception("Please set 'RecordProduceCustomGeom' in your config if you use this from the command line")
         
           if self.askGeom.value:
             use_custom_geom = True
@@ -247,16 +328,16 @@ class MediaProducer():
               rec_producer.communicate()
             
 
-        if just_everything or ( 'RecordProduceSlidesPlusAudio' not in self.config and mb.askyesno("Join video and audio?", "Do you want to join slideshow and audio now?", default=mb.YES)) or self.config.getboolean('RecordProduceSlidesPlusAudio'):
+        if just_everything or ( 'RecordProduceSlidesPlusAudio' not in self.config and self.askyesno("Join video and audio?", "Do you want to join slideshow and audio now?", default=mb.YES)) or self.config.getboolean('RecordProduceSlidesPlusAudio'):
           self.join_video_audio(self.rec_basename+'-screen.mp4', self.rec_basename+'-audio.flac', self.rec_basename+'-slides-audio.mkv', v_offset = self.rec_audio_offset)
           if not just_everything:
-            mb.showinfo("Done","Merging audio and video is done")
+            self.showinfo("Done","Merging audio and video is done")
       
-    elif just_everything or ( 'RecordProduceSlidesPlusAudio' not in self.config and mb.askyesno("Join video and audio?", "Do you want to join slides-video and audio now?", default=mb.YES)) or self.config.getboolean('RecordProduceSlidesPlusAudio'):
+    elif just_everything or ( 'RecordProduceSlidesPlusAudio' not in self.config and self.askyesno("Join video and audio?", "Do you want to join slides-video and audio now?", default=mb.YES)) or self.config.getboolean('RecordProduceSlidesPlusAudio'):
       ts = str(math.floor(self.rec_timing_markers[-1].total_seconds()))
       self.join_video_audio(self.rec_basename+'-screen.mkv', self.rec_basename+'-audio.flac', self.rec_basename+'-screen-audio.mkv', v_cut=ts)
       if not just_everything:
-        mb.showinfo("Done","Merging audio and video is done")
+        self.showinfo("Done","Merging audio and video is done")
       
     self.produce_webcam(just_everything)
     
@@ -265,7 +346,7 @@ class MediaProducer():
     img = self.pages[0].resize((int(geom[0]), int(geom[2])), Image.ANTIALIAS)
     img.save(self.rec_basename+'-title.png', 'png', compress_level=1)
     
-    mb.showinfo("Done", "All files produced")    
+    self.showinfo("Done", "All files produced")    
 
 class DeltaTemplate(Template):
     delimiter = "%"
@@ -545,7 +626,7 @@ class BaseRecorder(tk.Frame):
                                 60, 
                                 30)
     self.root.geometry(geom)
-    self.root.minsize(1000,596)
+    self.root.minsize(1000,546)
     self.root.update()
     self._after_id = None
     # ~ self.root.after(500, self.load_and_init, startslide, max_h)
@@ -903,7 +984,7 @@ class BaseRecorder(tk.Frame):
       if self.get_write_vtt():
         with open(self.rec_timing_file_vtt, 'a') as tf:
           diff = strfdelta(diff, "%H:%M:%S,%f")
-          last_title = self.get_title_to_log(self.counter)
+          last_title = self.get_title_to_log(self.counter if marker != REC_TIMING_MARKER_END else self.counter +1)
           if not start:
             print("{}\n- {}\n".format(diff, last_title), end='', file=tf)
           else:

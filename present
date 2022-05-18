@@ -105,6 +105,11 @@ RecordProduceScreencastOverlayPositionWebcamY = 500
 ; should the audio be compressed with aac codec during production?
 RecordProduceCompressAudio = yes
 
+; Sometimes, webcam and audio can't be synchronized correctly. In that case,
+; you can use this option to add an additional offset between audio and webcam.
+; RecordProduceAdditionalWebcamOffset = 00:00:00.250
+
+
 ; if a slideshow is produced from static pdf presentation, this size is used to
 ; configure the output size of the slideshow video. make sure to set a SlideLoadDpi
 ; and SlideLoadHeightFactor that 'supports' this resolution specified here

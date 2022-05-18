@@ -33,7 +33,10 @@ class bullshit():
     second_region = Path(self.rec_basename + '-screencast.mkv').exists()
     webcam = Path(self.rec_basename+'-webcam.mkv').exists()
     
-    tmp = tk.Tk()
+    try:
+      tmp = tk.Tk()
+    except tk.TclError:
+      tmp = None
     
     config = configparser.ConfigParser()
     default_file = Path(DEFAULT_CONFIG_FILE).expanduser()
