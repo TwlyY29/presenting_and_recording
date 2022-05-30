@@ -7,6 +7,7 @@ from tkinterhtml import HtmlFrame
 from tkinter import ttk
 import markdown
 from PIL import Image,ImageTk,ImageDraw
+from PIL.Image import Resampling
 from pdf2image import convert_from_path
 from pathlib import Path
 import os
@@ -313,7 +314,7 @@ class MediaProducer():
               else:
                 h = min(rootwindow.winfo_screenheight(), 1080)
                 w = int(round(h * page.width / page.height))
-              img = page.resize((w,h), Image.ANTIALIAS)
+              img = page.resize((w,h), Resampling.LANCZOS)
               img.save(fname, 'png', compress_level=6)
             fname = '{}/slide-{:03d}.png'.format(tmpdir,i+1)
             img = ImageTk.getimage(make_dummy_image(w,h, marked=False))
@@ -343,7 +344,7 @@ class MediaProducer():
     
     geom = self.config.get("RecordTitleImageGeom", "960x540")
     geom = geom.partition('x')
-    img = self.pages[0].resize((int(geom[0]), int(geom[2])), Image.ANTIALIAS)
+    img = self.pages[0].resize((int(geom[0]), int(geom[2])), Resampling.LANCZOS)
     img.save(self.rec_basename+'-title.png', 'png', compress_level=1)
     
     self.showinfo("Done", "All files produced")    
@@ -1217,7 +1218,7 @@ class SlideView:
       max_w = 0
       for i in range(len(self.pages)):
         img = self.pages[i].copy()
-        img.thumbnail((pic_width,pic_height), Image.ANTIALIAS)
+        img.thumbnail((pic_width,pic_height), Resampling.LANCZOS)
         max_w = max(max_w, img.size[0])
         self.list_images.append(ImageTk.PhotoImage(img))
       self.list_images.append(make_dummy_image(self.list_images[0].width(),self.list_images[0].height(), marked=False))
@@ -1328,7 +1329,7 @@ class PresenterView(BaseRecorder):
       # Create Preview images
       for i in range(len(self.pages)):
         img = self.pages[i].copy()
-        img.thumbnail((prev_pic_width,prev_pic_height), Image.ANTIALIAS)
+        img.thumbnail((prev_pic_width,prev_pic_height), Resampling.LANCZOS)
         self.list_preview_images.append(ImageTk.PhotoImage(img))
       # append a black screen at the end
       self.list_preview_images.append(make_dummy_image(self.list_preview_images[0].width(),self.list_preview_images[0].height(), marked=False))
