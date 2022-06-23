@@ -267,6 +267,7 @@ class MediaProducer():
       
       if Path(self.rec_basename+'-title.png').exists() and (just_everything or ( 'RecordProduceScreencastOverlayWithTitle' not in self.config and self.askyesno("Found a title-png!", "Do you want to produce overlayed screencast with intro now?", default=mb.YES)) or self.config.getboolean('RecordProduceScreencastOverlayWithTitle')):
         self.overlay_video_with_intro_maybe_outro(self.rec_basename+'-screencast.mkv', self.rec_basename+'-webcam.mkv', self.rec_basename+'-audio.flac', self.rec_basename+'-title.png', self.rec_basename+'-screencast_overlayed_title.mp4', v2_offset='-'+self.rec_webcam_offset)
+        
         # ~ if not just_everything:
           # ~ mb.showinfo("Done","Video overlay with intro is done")
     

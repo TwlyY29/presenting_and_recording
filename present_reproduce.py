@@ -50,7 +50,7 @@ class bullshit():
     self.config = config['DEFAULT']
     
     if is_screencast_or_presentation == 'presentation':
-      self.pages = convert_from_path(pdffile,size=(None, max_h),dpi=self.config.getint("SlideLoadDpi", 300))
+      self.pages = convert_from_path(project_name,size=(None, max_h),dpi=self.config.getint("SlideLoadDpi", 300))
     elif is_screencast_or_presentation == 'screencast':
       self.pages = []
     else:
@@ -87,6 +87,9 @@ class bullshit():
         self.rec_timing_markers.append((start+dt) - start)
   
   def load_timing_offsets(self):
+    self.rec_audio_offset = '00:00:00.0'
+    self.rec_webcam_offset = '00:00:00.0'
+    self.rec_screencast_offset = '00:00:00.0'
     with open(self.rec_stdout_file, 'r') as logfile:
       for line in logfile:
         if line.startswith('audiooffset='):
