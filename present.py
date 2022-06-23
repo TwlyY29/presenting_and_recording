@@ -247,31 +247,31 @@ class MediaProducer():
         return True
     return False
   
-  def produce_screencast(self, rootwindow):
+  def produce_screencast(self, rootwindow, infile_suffix='-screencast.mkv'):
     self.rootwindow = rootwindow
     just_everything = self.ask_just_everything()
     if just_everything is None:
       return
     
     if just_everything or ( 'RecordProduceScreencastPlusAudio' not in self.config and self.askyesno("Join video and audio?", "Do you want to join screencast and audio now?", default=mb.YES)) or self.config.getboolean('RecordProduceScreencastPlusAudio'):
-      self.join_video_audio(self.rec_basename+'-screencast.mkv', self.rec_basename+'-audio.flac', self.rec_basename+'-screencast-audio.mkv')
+      self.join_video_audio(self.rec_basename+infile_suffix, self.rec_basename+'-audio.flac', self.rec_basename+'-screencast-audio.mkv')
       if not just_everything:
         self.showinfo("Done","Merging audio and video is done")
     
     self.produce_webcam(just_everything)
     if self.get_record_webcam:    
       if just_everything or ( 'RecordProduceScreencastOverlay' not in self.config and self.askyesno("Overlay videos?", "Do you want to overlay the screencast and webcam video now?", default=mb.YES)) or self.config.getboolean('RecordProduceScreencastOverlay'):
-        self.overlay_video(self.rec_basename+'-screencast.mkv', self.rec_basename+'-webcam-audio.mkv', self.rec_basename+'-screencast_overlayed.mp4', v2_offset='-'+self.rec_webcam_offset)
+        self.overlay_video(self.rec_basename+infile_suffix, self.rec_basename+'-webcam-audio.mkv', self.rec_basename+'-screencast_overlayed.mp4', v2_offset='-'+self.rec_webcam_offset)
         if not just_everything:
           self.showinfo("Done","Video overlay is done")
       
       if Path(self.rec_basename+'-title.png').exists() and (just_everything or ( 'RecordProduceScreencastOverlayWithTitle' not in self.config and self.askyesno("Found a title-png!", "Do you want to produce overlayed screencast with intro now?", default=mb.YES)) or self.config.getboolean('RecordProduceScreencastOverlayWithTitle')):
-        self.overlay_video_with_intro_maybe_outro(self.rec_basename+'-screencast.mkv', self.rec_basename+'-webcam.mkv', self.rec_basename+'-audio.flac', self.rec_basename+'-title.png', self.rec_basename+'-screencast_overlayed_title.mp4', v2_offset='-'+self.rec_webcam_offset)
+        self.overlay_video_with_intro_maybe_outro(self.rec_basename+infile_suffix, self.rec_basename+'-webcam.mkv', self.rec_basename+'-audio.flac', self.rec_basename+'-title.png', self.rec_basename+'-screencast_overlayed_title.mp4', v2_offset='-'+self.rec_webcam_offset)
         
         # ~ if not just_everything:
           # ~ mb.showinfo("Done","Video overlay with intro is done")
     
-    self.showinfo("Done", "All files produced")  
+    self.showinfo("Done", "All files produced")
     
   def produce_recording(self, rootwindow):
     self.rootwindow = rootwindow

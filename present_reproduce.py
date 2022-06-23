@@ -71,6 +71,7 @@ class bullshit():
                                rec_stdout = logfile)
       if is_screencast_or_presentation == 'presentation':
         Producer.produce_recording(tmp)
+        Producer.produce_screencast(tmp, infile_suffix='-screen.mp4')
       elif is_screencast_or_presentation == 'screencast':
         Producer.produce_screencast(tmp)
       
